@@ -24,6 +24,7 @@ interface BrowserStore {
   history: HistoryItem[];
   downloads: DownloadItem[];
   isCurrentPageBookmarked: boolean;
+  theme: 'light' | 'dark';
 
   // Actions
   setTabs: (tabs: BrowserTab[], activeTabId: string) => void;
@@ -35,6 +36,8 @@ interface BrowserStore {
   appendChatChunk: (chunk: string) => void;
   setLastObservation: (obs: PageObservation | null) => void;
   setLastScreenshotUrl: (url: string | null) => void;
+  setTheme: (theme: 'light' | 'dark') => void;
+  toggleTheme: () => void;
 
   // Browser Operations
   createTab: (url?: string, isPrivate?: boolean) => Promise<void>;
@@ -65,6 +68,36 @@ interface BrowserStore {
   updateDownloadItem: (item: DownloadItem) => void;
 }
 
+export function applyTheme(theme: 'light' | 'dark') {
+  if (typeof document !== 'undefined') {
+    document.documentElement.setAttribute('data-theme', theme);
+    document.documentElement.classList.remove('light', 'dark');
+    document.documentElement.classList.add(theme);
+    if (document.body) {
+      document.body.setAttribute('data-theme', theme);
+      document.body.classList.remove('light', 'dark');
+      document.body.classList.add(theme);
+    }
+  }
+}
+
+function getInitialTheme(): 'light' | 'dark' {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    const saved = window.localStorage.getItem('app_theme');
+    if (saved === 'dark' || saved === 'light') {
+      return saved;
+    }
+  }
+  return 'light';
+}
+
+const initialTheme = getInitialTheme();
+applyTheme(initialTheme);
+
+const themeChannel = typeof window !== 'undefined' && 'BroadcastChannel' in window
+  ? new BroadcastChannel('ai_browser_theme_sync')
+  : null;
+
 export const useBrowserStore = create<BrowserStore>((set, get) => ({
   tabs: [],
   activeTabId: '',
@@ -73,6 +106,7 @@ export const useBrowserStore = create<BrowserStore>((set, get) => ({
   sidebarActiveTab: 'discover',
   backendStatus: { online: false },
   activeTab: null,
+  theme: initialTheme,
   chatMessages: [
     {
       id: 'welcome-1',
@@ -87,6 +121,20 @@ export const useBrowserStore = create<BrowserStore>((set, get) => ({
   history: [],
   downloads: [],
   isCurrentPageBookmarked: false,
+
+  setTheme: (theme: 'light' | 'dark') => {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem('app_theme', theme);
+    }
+    applyTheme(theme);
+    themeChannel?.postMessage({ type: 'THEME_CHANGE', theme });
+    set({ theme });
+  },
+
+  toggleTheme: () => {
+    const nextTheme = get().theme === 'light' ? 'dark' : 'light';
+    get().setTheme(nextTheme);
+  },
 
   setTabs: (tabs, activeTabId) => {
     const activeTab = tabs.find(t => t.id === activeTabId) || null;
@@ -331,3 +379,22 @@ export const useBrowserStore = create<BrowserStore>((set, get) => ({
     });
   }
 }));
+
+if (typeof window !== 'undefined') {
+  if (themeChannel) {
+    themeChannel.onmessage = (event) => {
+      if (event.data?.type === 'THEME_CHANGE' && (event.data.theme === 'light' || event.data.theme === 'dark')) {
+        applyTheme(event.data.theme);
+        useBrowserStore.setState({ theme: event.data.theme });
+      }
+    };
+  }
+
+  window.addEventListener('storage', (event) => {
+    if (event.key === 'app_theme' && (event.newValue === 'light' || event.newValue === 'dark')) {
+      const newTheme = event.newValue as 'light' | 'dark';
+      applyTheme(newTheme);
+      useBrowserStore.setState({ theme: newTheme });
+    }
+  });
+}

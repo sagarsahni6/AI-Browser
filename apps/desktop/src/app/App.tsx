@@ -3,10 +3,22 @@ import { ToolbarPanel } from '../panels/ToolbarPanel';
 import { SidebarPanel } from '../panels/SidebarPanel';
 import { AssistantPanel } from '../panels/AssistantPanel';
 import { FirstRunWizard } from '../components/FirstRunWizard';
-import { useBrowserStore } from '../store/browser-store';
+import { useBrowserStore, applyTheme } from '../store/browser-store';
 
 export const App: React.FC = () => {
   const [showWizard, setShowWizard] = useState(false);
+  const {
+    theme,
+    setTabs,
+    setSidebarOpen,
+    setAssistantOpen,
+    setBackendStatus,
+    appendChatChunk
+  } = useBrowserStore();
+
+  useEffect(() => {
+    applyTheme(theme);
+  }, [theme]);
 
   useEffect(() => {
     const hasCompleted = localStorage.getItem('has_completed_onboarding');
@@ -14,13 +26,6 @@ export const App: React.FC = () => {
       setShowWizard(true);
     }
   }, []);
-  const {
-    setTabs,
-    setSidebarOpen,
-    setAssistantOpen,
-    setBackendStatus,
-    appendChatChunk
-  } = useBrowserStore();
 
   const searchParams = new URLSearchParams(window.location.search);
   const panel = searchParams.get('panel');

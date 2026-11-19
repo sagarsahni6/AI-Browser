@@ -17,7 +17,9 @@ import {
   History,
   ShieldAlert,
   Clock,
-  Bookmark
+  Bookmark,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { useBrowserStore } from '../store/browser-store';
 
@@ -32,6 +34,8 @@ export const ToolbarPanel: React.FC = () => {
     isCurrentPageBookmarked,
     history,
     bookmarks,
+    theme,
+    toggleTheme,
     createTab,
     closeTab,
     switchTab,
@@ -374,6 +378,15 @@ export const ToolbarPanel: React.FC = () => {
           title="Toggle Navigation Sidebar (Ctrl+H)"
         >
           <PanelLeft size={16} />
+        </button>
+
+        <button
+          onClick={toggleTheme}
+          className="icon-btn"
+          title={theme === 'light' ? 'Switch to Dark Theme' : 'Switch to Light Theme'}
+          aria-label="Toggle Theme"
+        >
+          {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
         </button>
 
         <button

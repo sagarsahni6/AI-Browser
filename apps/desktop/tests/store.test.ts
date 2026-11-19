@@ -35,4 +35,33 @@ describe('useBrowserStore', () => {
     useBrowserStore.getState().setAssistantOpen(false);
     expect(useBrowserStore.getState().assistantOpen).toBe(false);
   });
+
+  it('manages theme state defaulting to light and supports toggling', () => {
+    const mockAttrs: Record<string, string> = {};
+    (globalThis as any).document = {
+      documentElement: {
+        setAttribute: (key: string, val: string) => { mockAttrs[key] = val; },
+        getAttribute: (key: string) => mockAttrs[key] || null,
+        classList: { remove: () => {}, add: () => {} }
+      },
+      body: {
+        setAttribute: (key: string, val: string) => { mockAttrs[key] = val; },
+        getAttribute: (key: string) => mockAttrs[key] || null,
+        classList: { remove: () => {}, add: () => {} }
+      }
+    };
+
+    // Initial theme should default to light
+    expect(useBrowserStore.getState().theme).toBe('light');
+
+    // Switch to dark theme
+    useBrowserStore.getState().setTheme('dark');
+    expect(useBrowserStore.getState().theme).toBe('dark');
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+
+    // Toggle back to light theme
+    useBrowserStore.getState().toggleTheme();
+    expect(useBrowserStore.getState().theme).toBe('light');
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+  });
 });

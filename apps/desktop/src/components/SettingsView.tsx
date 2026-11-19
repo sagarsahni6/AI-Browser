@@ -9,12 +9,14 @@ import {
   Trash2,
   Save,
   Globe,
-  Sliders
+  Sliders,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { useBrowserStore } from '../store/browser-store';
 
 export const SettingsView: React.FC = () => {
-  const { clearHistory } = useBrowserStore();
+  const { clearHistory, theme, setTheme } = useBrowserStore();
 
   const [activeTab, setActiveTab] = useState<'general' | 'ai' | 'privacy' | 'about'>('ai');
   const [nvidiaKey, setNvidiaKey] = useState('');
@@ -215,7 +217,53 @@ export const SettingsView: React.FC = () => {
 
         {/* GENERAL SETTINGS */}
         {activeTab === 'general' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div>
+              <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '6px' }}>
+                Appearance & Theme
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setTheme('light')}
+                  style={{
+                    flex: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                    padding: '8px 12px',
+                    borderRadius: 'var(--radius-sm)',
+                    border: theme === 'light' ? '2px solid var(--accent-primary)' : '1px solid var(--border-subtle)',
+                    backgroundColor: theme === 'light' ? 'var(--accent-subtle)' : 'var(--bg-tertiary)',
+                    color: theme === 'light' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                    fontWeight: theme === 'light' ? 600 : 400
+                  }}
+                >
+                  <Sun size={14} /> Lite (Default)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTheme('dark')}
+                  style={{
+                    flex: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                    padding: '8px 12px',
+                    borderRadius: 'var(--radius-sm)',
+                    border: theme === 'dark' ? '2px solid var(--accent-primary)' : '1px solid var(--border-subtle)',
+                    backgroundColor: theme === 'dark' ? 'var(--accent-subtle)' : 'var(--bg-tertiary)',
+                    color: theme === 'dark' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                    fontWeight: theme === 'dark' ? 600 : 400
+                  }}
+                >
+                  <Moon size={14} /> Dark
+                </button>
+              </div>
+            </div>
+
             <div>
               <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px' }}>
                 Default Search Provider

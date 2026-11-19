@@ -28,7 +28,7 @@ async function createWindow() {
     minHeight: 600,
     show: false,
     title: 'AI Browser',
-    backgroundColor: '#0d0f12',
+    backgroundColor: '#f8fafc',
   });
 
   const layoutManager = new LayoutManager(mainWindow);
