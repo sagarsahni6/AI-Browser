@@ -9,11 +9,11 @@ async def test_ai_provider_routing():
     # 1. Test model router
     provider, model = ModelRouter.route_for_task(task_type="text")
     assert provider.provider_id == "nvidia_nim"
-    assert "llama" in model.lower()
+    assert "llama" in model.lower() or "minimax" in model.lower()
 
     # Vision routing
     v_provider, v_model = ModelRouter.route_for_task(task_type="vision")
-    assert "vision" in v_model.lower() or "4o" in v_model.lower()
+    assert "vision" in v_model.lower() or "vl" in v_model.lower() or "4o" in v_model.lower()
 
     # 2. Test completion with mocked/offline fallback
     res = await provider.chat_completion(

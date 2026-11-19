@@ -10,8 +10,8 @@ class Settings(BaseSettings):
     # AI Provider Settings (NVIDIA NIM)
     NVIDIA_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
     NVIDIA_API_KEY: Optional[str] = None
-    NVIDIA_MODEL: str = "meta/llama-3.3-70b-instruct"
-    NVIDIA_VISION_MODEL: str = "meta/llama-3.2-90b-vision-instruct"
+    NVIDIA_MODEL: str = "minimaxai/minimax-m3.1-flash"
+    NVIDIA_VISION_MODEL: str = "nvidia/nemotron-3.5-super-vl-120b-a12b"
 
     # OpenAI Fallback
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"

@@ -93,8 +93,9 @@ class NvidiaNimProvider(BaseAIProvider):
 
             choice = data["choices"][0]
             msg = choice.get("message", {})
+            raw_content = msg.get("content") or msg.get("reasoning_content") or ""
             return ChatCompletionResult(
-                content=msg.get("content") or "",
+                content=raw_content,
                 model=data.get("model", target_model),
                 tool_calls=msg.get("tool_calls"),
                 finish_reason=choice.get("finish_reason"),
@@ -149,7 +150,7 @@ class NvidiaNimProvider(BaseAIProvider):
                         try:
                             chunk = json.loads(data_str)
                             delta = chunk["choices"][0].get("delta", {})
-                            content = delta.get("content")
+                            content = delta.get("content") or delta.get("reasoning_content")
                             if content:
                                 yield content
                         except Exception:

@@ -62,11 +62,19 @@ export const App: React.FC = () => {
   }, [setTabs, setSidebarOpen, setAssistantOpen, setBackendStatus, appendChatChunk]);
 
   if (panel === 'toolbar') {
+    return <ToolbarPanel />;
+  }
+
+  if (panel === 'welcome') {
     return (
-      <>
-        <ToolbarPanel />
-        {showWizard && <FirstRunWizard onComplete={() => setShowWizard(false)} />}
-      </>
+      <FirstRunWizard
+        onComplete={() => {
+          localStorage.setItem('has_completed_onboarding', 'true');
+          if (window.electronAPI?.navigate) {
+            window.electronAPI.navigate('https://www.google.com');
+          }
+        }}
+      />
     );
   }
 

@@ -5,6 +5,7 @@ import fs from 'fs';
 import net from 'net';
 import { EventEmitter } from 'events';
 import { RpcClient } from './rpc-client';
+import { SecretStorage } from '../security/secret-storage';
 
 function findMonorepoRoot(): string {
   let curr = __dirname;
@@ -67,11 +68,22 @@ export class ProcessManager extends EventEmitter {
     console.log(`[ProcessManager] Monorepo root: ${rootDir}`);
     console.log(`[ProcessManager] Spawning Python backend on port ${this.port} using: ${pythonExe}`);
 
+    let storedApiKey = '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';
+    try {
+      const secretStorage = new SecretStorage();
+      const loaded = secretStorage.getSecret('NVIDIA_API_KEY');
+      if (loaded) storedApiKey = loaded;
+      else secretStorage.setSecret('NVIDIA_API_KEY', storedApiKey);
+    } catch (e) {
+      // safeStorage fallback
+    }
+
     const env = {
       ...process.env,
       HOST: '127.0.0.1',
       PORT: this.port.toString(),
       SECRET_TOKEN: this.secretToken,
+      NVIDIA_API_KEY: storedApiKey,
       PYTHONUNBUFFERED: '1',
       PYTHONPATH: `${rootDir};${path.join(rootDir, 'backend')}`
     };
