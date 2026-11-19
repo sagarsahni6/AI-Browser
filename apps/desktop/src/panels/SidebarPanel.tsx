@@ -16,6 +16,7 @@ import {
   FileCheck
 } from 'lucide-react';
 import { useBrowserStore } from '../store/browser-store';
+import { SettingsView } from '../components/SettingsView';
 
 export const SidebarPanel: React.FC = () => {
   const {
@@ -373,6 +374,11 @@ export const SidebarPanel: React.FC = () => {
               ))
             )}
           </div>
+        )}
+
+        {/* SETTINGS VIEW */}
+        {sidebarActiveTab === 'settings' && (
+          <SettingsView />
         )}
 
         {/* COLLECTIONS & TASKS PLACEHOLDER */}

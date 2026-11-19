@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'child_process';
 import path from 'path';
 import crypto from 'crypto';
 import fs from 'fs';
+import net from 'net';
 import { EventEmitter } from 'events';
 import { RpcClient } from './rpc-client';
 
@@ -16,6 +17,18 @@ function findMonorepoRoot(): string {
     curr = parent;
   }
   return process.cwd();
+}
+
+async function findAvailablePort(startPort = 8000): Promise<number> {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.listen(startPort, '127.0.0.1', () => {
+      server.close(() => resolve(startPort));
+    });
+    server.on('error', () => {
+      resolve(findAvailablePort(startPort + 1));
+    });
+  });
 }
 
 export class ProcessManager extends EventEmitter {
@@ -48,10 +61,11 @@ export class ProcessManager extends EventEmitter {
     const venvPythonWin = path.join(rootDir, 'backend/.venv/Scripts/python.exe');
     const pythonExe = fs.existsSync(venvPythonWin) ? venvPythonWin : 'python';
 
-    console.log(`[ProcessManager] Monorepo root: ${rootDir}`);
-    console.log(`[ProcessManager] Spawning Python backend using: ${pythonExe}`);
+    // Find free port dynamically to prevent socket collisions
+    this.port = await findAvailablePort(8000);
 
-    this.port = 8000;
+    console.log(`[ProcessManager] Monorepo root: ${rootDir}`);
+    console.log(`[ProcessManager] Spawning Python backend on port ${this.port} using: ${pythonExe}`);
 
     const env = {
       ...process.env,

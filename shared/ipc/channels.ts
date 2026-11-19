@@ -45,6 +45,10 @@ export const IPC_CHANNELS = {
   // Backend state
   BACKEND_STATUS: 'backend:status',
 
+  // Secrets & Settings
+  SECRET_SET: 'secret:set',
+  SECRET_GET: 'secret:get',
+
   // Assistant & Chat
   SEND_CHAT_MESSAGE: 'chat:send-message',
   CHAT_STREAM_CHUNK: 'chat:stream-chunk'

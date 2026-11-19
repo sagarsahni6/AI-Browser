@@ -7,6 +7,8 @@ import type { RpcClient } from './rpc-client';
 import type { HistoryManager } from '../browser/history-manager';
 import type { BookmarkManager } from '../browser/bookmark-manager';
 import type { DownloadManager } from '../browser/download-manager';
+import { SecretStorage } from '../security/secret-storage';
+import { SenderValidator } from '../security/sender-validator';
 
 export function setupIpcHandlers(deps: {
   tabManager: TabManager;
@@ -106,6 +108,18 @@ export function setupIpcHandlers(deps: {
 
   rpcClient.registerMethod('browser.press_key', async (params: { key: string }) => {
     return await tabManager.pressKey(params.key);
+  });
+
+  const secretStorage = new SecretStorage();
+
+  ipcMain.handle(IPC_CHANNELS.SECRET_SET, async (event, key: string, value: string) => {
+    if (!SenderValidator.isTrustedSender(event)) throw new Error('Untrusted IPC caller');
+    secretStorage.setSecret(key, value);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.SECRET_GET, async (event, key: string) => {
+    if (!SenderValidator.isTrustedSender(event)) throw new Error('Untrusted IPC caller');
+    return secretStorage.getSecret(key);
   });
 
   // Renderer IPC Handlers

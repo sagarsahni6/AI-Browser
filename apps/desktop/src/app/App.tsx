@@ -1,10 +1,19 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ToolbarPanel } from '../panels/ToolbarPanel';
 import { SidebarPanel } from '../panels/SidebarPanel';
 import { AssistantPanel } from '../panels/AssistantPanel';
+import { FirstRunWizard } from '../components/FirstRunWizard';
 import { useBrowserStore } from '../store/browser-store';
 
 export const App: React.FC = () => {
+  const [showWizard, setShowWizard] = useState(false);
+
+  useEffect(() => {
+    const hasCompleted = localStorage.getItem('has_completed_onboarding');
+    if (!hasCompleted && window.location.search.includes('panel=toolbar')) {
+      setShowWizard(true);
+    }
+  }, []);
   const {
     setTabs,
     setSidebarOpen,
@@ -48,7 +57,12 @@ export const App: React.FC = () => {
   }, [setTabs, setSidebarOpen, setAssistantOpen, setBackendStatus, appendChatChunk]);
 
   if (panel === 'toolbar') {
-    return <ToolbarPanel />;
+    return (
+      <>
+        <ToolbarPanel />
+        {showWizard && <FirstRunWizard onComplete={() => setShowWizard(false)} />}
+      </>
+    );
   }
 
   if (panel === 'sidebar') {

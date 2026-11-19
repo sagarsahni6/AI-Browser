@@ -55,6 +55,10 @@ export interface ElectronAPI {
   capturePage: () => Promise<string>;
   inspectPage: () => Promise<PageObservation>;
 
+  // Secrets & Settings
+  setSecret: (key: string, value: string) => Promise<void>;
+  getSecret: (key: string) => Promise<string | null>;
+
   // Backend state
   onBackendStatus: (callback: (status: { online: boolean; port?: number }) => void) => () => void;
 

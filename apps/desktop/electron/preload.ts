@@ -113,6 +113,14 @@ const electronAPI = {
     return ipcRenderer.invoke(IPC_CHANNELS.INSPECT_PAGE);
   },
 
+  // Secrets & Settings
+  setSecret: (key: string, value: string): Promise<void> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SECRET_SET, key, value);
+  },
+  getSecret: (key: string): Promise<string | null> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SECRET_GET, key);
+  },
+
   // Backend state
   onBackendStatus: (callback: (status: { online: boolean; port?: number }) => void) => {
     const handler = (_event: unknown, status: { online: boolean; port?: number }) => {
