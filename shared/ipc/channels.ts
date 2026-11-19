@@ -5,6 +5,8 @@ export const IPC_CHANNELS = {
   TAB_SWITCH: 'tab:switch',
   TAB_STATE_CHANGED: 'tab:state-changed',
   TABS_GET: 'tabs:get',
+  TAB_RESTORE_CLOSED: 'tab:restore-closed',
+  TAB_DUPLICATE: 'tab:duplicate',
 
   // Navigation
   NAV_NAVIGATE: 'nav:navigate',
@@ -12,6 +14,24 @@ export const IPC_CHANNELS = {
   NAV_FORWARD: 'nav:forward',
   NAV_RELOAD: 'nav:reload',
   NAV_STOP: 'nav:stop',
+
+  // History
+  HISTORY_GET: 'history:get',
+  HISTORY_SEARCH: 'history:search',
+  HISTORY_CLEAR: 'history:clear',
+  HISTORY_ITEM_ADDED: 'history:item-added',
+
+  // Bookmarks
+  BOOKMARKS_GET: 'bookmarks:get',
+  BOOKMARK_ADD: 'bookmarks:add',
+  BOOKMARK_REMOVE: 'bookmarks:remove',
+  BOOKMARK_IS_SAVED: 'bookmarks:is-saved',
+
+  // Downloads
+  DOWNLOADS_GET: 'downloads:get',
+  DOWNLOAD_UPDATE: 'download:update',
+  DOWNLOAD_OPEN_FILE: 'download:open-file',
+  DOWNLOAD_OPEN_FOLDER: 'download:open-folder',
 
   // Panel toggles & Layout
   PANEL_TOGGLE_ASSISTANT: 'panel:toggle-assistant',

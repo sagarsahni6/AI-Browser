@@ -8,6 +8,7 @@ export interface BrowserTab {
   canGoForward: boolean;
   isAudible?: boolean;
   isMuted?: boolean;
+  isPrivate?: boolean;
 }
 
 export interface InteractiveElement {
@@ -41,4 +42,37 @@ export interface LayoutBounds {
   y: number;
   width: number;
   height: number;
+}
+
+export interface HistoryItem {
+  id: string;
+  url: string;
+  title: string;
+  visitedAt: number;
+  visitCount: number;
+}
+
+export interface BookmarkItem {
+  id: string;
+  url: string;
+  title: string;
+  favicon?: string;
+  createdAt: number;
+}
+
+export interface DownloadItem {
+  id: string;
+  filename: string;
+  url: string;
+  savePath: string;
+  receivedBytes: number;
+  totalBytes: number;
+  state: 'progressing' | 'completed' | 'cancelled' | 'interrupted';
+  startTime: number;
+}
+
+export interface BrowserSession {
+  tabs: Array<{ url: string; title: string }>;
+  activeTabIndex: number;
+  savedAt: number;
 }

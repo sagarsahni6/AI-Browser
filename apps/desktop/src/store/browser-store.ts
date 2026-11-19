@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { BrowserTab, PageObservation } from '@ai-browser/shared';
+import type { BrowserTab, PageObservation, BookmarkItem, HistoryItem, DownloadItem } from '@ai-browser/shared';
 
 export interface ChatMessage {
   id: string;
@@ -14,15 +14,21 @@ interface BrowserStore {
   activeTabId: string;
   sidebarOpen: boolean;
   assistantOpen: boolean;
+  sidebarActiveTab: 'discover' | 'history' | 'bookmarks' | 'downloads' | 'collections' | 'tasks' | 'settings';
   backendStatus: { online: boolean; port?: number };
   activeTab: BrowserTab | null;
   chatMessages: ChatMessage[];
   lastObservation: PageObservation | null;
   lastScreenshotUrl: string | null;
+  bookmarks: BookmarkItem[];
+  history: HistoryItem[];
+  downloads: DownloadItem[];
+  isCurrentPageBookmarked: boolean;
 
   // Actions
   setTabs: (tabs: BrowserTab[], activeTabId: string) => void;
   setSidebarOpen: (open: boolean) => void;
+  setSidebarActiveTab: (tab: 'discover' | 'history' | 'bookmarks' | 'downloads' | 'collections' | 'tasks' | 'settings') => void;
   setAssistantOpen: (open: boolean) => void;
   setBackendStatus: (status: { online: boolean; port?: number }) => void;
   addChatMessage: (msg: ChatMessage) => void;
@@ -31,9 +37,11 @@ interface BrowserStore {
   setLastScreenshotUrl: (url: string | null) => void;
 
   // Browser Operations
-  createTab: (url?: string) => Promise<void>;
+  createTab: (url?: string, isPrivate?: boolean) => Promise<void>;
   closeTab: (id: string) => Promise<void>;
   switchTab: (id: string) => Promise<void>;
+  restoreClosedTab: () => Promise<void>;
+  duplicateTab: (id: string) => Promise<void>;
   navigate: (url: string) => Promise<void>;
   goBack: () => Promise<void>;
   goForward: () => Promise<void>;
@@ -43,6 +51,18 @@ interface BrowserStore {
   capturePage: () => Promise<string>;
   inspectPage: () => Promise<PageObservation>;
   sendChatMessage: (content: string) => Promise<void>;
+
+  // History & Bookmarks & Downloads
+  refreshBookmarks: () => Promise<void>;
+  toggleBookmarkCurrentPage: () => Promise<void>;
+  removeBookmark: (urlOrId: string) => Promise<void>;
+  refreshHistory: () => Promise<void>;
+  searchHistory: (query: string) => Promise<void>;
+  clearHistory: () => Promise<void>;
+  refreshDownloads: () => Promise<void>;
+  openDownloadFile: (id: string) => Promise<void>;
+  openDownloadFolder: (id: string) => Promise<void>;
+  updateDownloadItem: (item: DownloadItem) => void;
 }
 
 export const useBrowserStore = create<BrowserStore>((set, get) => ({
@@ -50,6 +70,7 @@ export const useBrowserStore = create<BrowserStore>((set, get) => ({
   activeTabId: '',
   sidebarOpen: false,
   assistantOpen: true,
+  sidebarActiveTab: 'discover',
   backendStatus: { online: false },
   activeTab: null,
   chatMessages: [
@@ -62,13 +83,19 @@ export const useBrowserStore = create<BrowserStore>((set, get) => ({
   ],
   lastObservation: null,
   lastScreenshotUrl: null,
+  bookmarks: [],
+  history: [],
+  downloads: [],
+  isCurrentPageBookmarked: false,
 
   setTabs: (tabs, activeTabId) => {
     const activeTab = tabs.find(t => t.id === activeTabId) || null;
-    set({ tabs, activeTabId, activeTab });
+    const isBookmarked = activeTab ? get().bookmarks.some(b => b.url === activeTab.url) : false;
+    set({ tabs, activeTabId, activeTab, isCurrentPageBookmarked: isBookmarked });
   },
 
   setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
+  setSidebarActiveTab: (sidebarActiveTab) => set({ sidebarActiveTab, sidebarOpen: true }),
   setAssistantOpen: (assistantOpen) => set({ assistantOpen }),
   setBackendStatus: (backendStatus) => set({ backendStatus }),
 
@@ -93,9 +120,9 @@ export const useBrowserStore = create<BrowserStore>((set, get) => ({
   setLastObservation: (obs) => set({ lastObservation: obs }),
   setLastScreenshotUrl: (url) => set({ lastScreenshotUrl: url }),
 
-  createTab: async (url) => {
+  createTab: async (url, isPrivate) => {
     if (window.electronAPI?.createTab) {
-      await window.electronAPI.createTab(url);
+      await window.electronAPI.createTab(url, isPrivate);
     }
   },
 
@@ -108,6 +135,18 @@ export const useBrowserStore = create<BrowserStore>((set, get) => ({
   switchTab: async (id) => {
     if (window.electronAPI?.switchTab) {
       await window.electronAPI.switchTab(id);
+    }
+  },
+
+  restoreClosedTab: async () => {
+    if (window.electronAPI?.restoreClosedTab) {
+      await window.electronAPI.restoreClosedTab();
+    }
+  },
+
+  duplicateTab: async (id) => {
+    if (window.electronAPI?.duplicateTab) {
+      await window.electronAPI.duplicateTab(id);
     }
   },
 
@@ -188,7 +227,6 @@ export const useBrowserStore = create<BrowserStore>((set, get) => ({
         tabId: get().activeTabId,
         url: get().activeTab?.url
       });
-      // If full reply returned and not already streamed
       set(state => {
         const msgs = [...state.chatMessages];
         const last = msgs[msgs.length - 1];
@@ -198,5 +236,98 @@ export const useBrowserStore = create<BrowserStore>((set, get) => ({
         return { chatMessages: msgs };
       });
     }
+  },
+
+  refreshBookmarks: async () => {
+    if (window.electronAPI?.getBookmarks) {
+      const list = await window.electronAPI.getBookmarks();
+      const isBookmarked = get().activeTab ? list.some(b => b.url === get().activeTab?.url) : false;
+      set({ bookmarks: list, isCurrentPageBookmarked: isBookmarked });
+    }
+  },
+
+  toggleBookmarkCurrentPage: async () => {
+    const active = get().activeTab;
+    if (!active || !window.electronAPI?.addBookmark || !window.electronAPI?.removeBookmark) return;
+
+    if (get().isCurrentPageBookmarked) {
+      await window.electronAPI.removeBookmark(active.url);
+      set({
+        isCurrentPageBookmarked: false,
+        bookmarks: get().bookmarks.filter(b => b.url !== active.url)
+      });
+    } else {
+      const newItem = await window.electronAPI.addBookmark({
+        url: active.url,
+        title: active.title || active.url,
+        favicon: active.favicon
+      });
+      set({
+        isCurrentPageBookmarked: true,
+        bookmarks: [newItem, ...get().bookmarks]
+      });
+    }
+  },
+
+  removeBookmark: async (urlOrId) => {
+    if (window.electronAPI?.removeBookmark) {
+      await window.electronAPI.removeBookmark(urlOrId);
+      set(state => ({
+        bookmarks: state.bookmarks.filter(b => b.id !== urlOrId && b.url !== urlOrId),
+        isCurrentPageBookmarked: state.activeTab ? state.activeTab.url !== urlOrId : false
+      }));
+    }
+  },
+
+  refreshHistory: async () => {
+    if (window.electronAPI?.getHistory) {
+      const list = await window.electronAPI.getHistory(150);
+      set({ history: list });
+    }
+  },
+
+  searchHistory: async (query) => {
+    if (window.electronAPI?.searchHistory) {
+      const results = await window.electronAPI.searchHistory(query);
+      set({ history: results });
+    }
+  },
+
+  clearHistory: async () => {
+    if (window.electronAPI?.clearHistory) {
+      await window.electronAPI.clearHistory();
+      set({ history: [] });
+    }
+  },
+
+  refreshDownloads: async () => {
+    if (window.electronAPI?.getDownloads) {
+      const list = await window.electronAPI.getDownloads();
+      set({ downloads: list });
+    }
+  },
+
+  openDownloadFile: async (id) => {
+    if (window.electronAPI?.openDownloadFile) {
+      await window.electronAPI.openDownloadFile(id);
+    }
+  },
+
+  openDownloadFolder: async (id) => {
+    if (window.electronAPI?.openDownloadFolder) {
+      await window.electronAPI.openDownloadFolder(id);
+    }
+  },
+
+  updateDownloadItem: (item) => {
+    set(state => {
+      const idx = state.downloads.findIndex(d => d.id === item.id);
+      if (idx !== -1) {
+        const next = [...state.downloads];
+        next[idx] = item;
+        return { downloads: next };
+      }
+      return { downloads: [item, ...state.downloads] };
+    });
   }
 }));

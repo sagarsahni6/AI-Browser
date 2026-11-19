@@ -1,11 +1,19 @@
-import type { BrowserTab, PageObservation } from '@ai-browser/shared';
+import type {
+  BrowserTab,
+  PageObservation,
+  HistoryItem,
+  BookmarkItem,
+  DownloadItem
+} from '@ai-browser/shared';
 
 export interface ElectronAPI {
   // Tabs
-  createTab: (url?: string) => Promise<string>;
+  createTab: (url?: string, isPrivate?: boolean) => Promise<string>;
   closeTab: (tabId: string) => Promise<void>;
   switchTab: (tabId: string) => Promise<void>;
   getTabs: () => Promise<BrowserTab[]>;
+  restoreClosedTab: () => Promise<string | null>;
+  duplicateTab: (tabId: string) => Promise<void>;
   onTabsUpdated: (callback: (tabs: BrowserTab[], activeTabId: string) => void) => () => void;
 
   // Navigation
@@ -14,6 +22,23 @@ export interface ElectronAPI {
   goForward: () => Promise<void>;
   reload: () => Promise<void>;
   stop: () => Promise<void>;
+
+  // History
+  getHistory: (limit?: number) => Promise<HistoryItem[]>;
+  searchHistory: (query: string) => Promise<HistoryItem[]>;
+  clearHistory: () => Promise<void>;
+
+  // Bookmarks
+  getBookmarks: () => Promise<BookmarkItem[]>;
+  addBookmark: (item: { url: string; title: string; favicon?: string }) => Promise<BookmarkItem>;
+  removeBookmark: (urlOrId: string) => Promise<boolean>;
+  isBookmarked: (url: string) => Promise<boolean>;
+
+  // Downloads
+  getDownloads: () => Promise<DownloadItem[]>;
+  openDownloadFile: (id: string) => Promise<boolean>;
+  openDownloadFolder: (id: string) => Promise<boolean>;
+  onDownloadUpdate: (callback: (item: DownloadItem) => void) => () => void;
 
   // Panels
   toggleSidebar: () => Promise<boolean>;
@@ -27,7 +52,7 @@ export interface ElectronAPI {
   }>;
 
   // Browser Actions & CDP
-  capturePage: () => Promise<string>; // base64 data url
+  capturePage: () => Promise<string>;
   inspectPage: () => Promise<PageObservation>;
 
   // Backend state

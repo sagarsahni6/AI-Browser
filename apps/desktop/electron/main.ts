@@ -3,6 +3,10 @@ import { createPanelView } from './panels/panel-factory';
 import { LayoutManager } from './layout-manager';
 import { TabManager } from './browser/tab-manager';
 import { DebuggerManager } from './browser/debugger-manager';
+import { HistoryManager } from './browser/history-manager';
+import { BookmarkManager } from './browser/bookmark-manager';
+import { DownloadManager } from './browser/download-manager';
+import { SessionManager } from './browser/session-manager';
 import { RpcClient } from './bridge/rpc-client';
 import { ProcessManager } from './bridge/process-manager';
 import { setupIpcHandlers } from './bridge/ipc-handlers';
@@ -10,6 +14,10 @@ import { setupIpcHandlers } from './bridge/ipc-handlers';
 let mainWindow: BaseWindow | null = null;
 let tabManager: TabManager | null = null;
 let debuggerManager: DebuggerManager | null = null;
+let historyManager: HistoryManager | null = null;
+let bookmarkManager: BookmarkManager | null = null;
+let downloadManager: DownloadManager | null = null;
+let sessionManager: SessionManager | null = null;
 let processManager: ProcessManager | null = null;
 
 async function createWindow() {
@@ -25,7 +33,12 @@ async function createWindow() {
 
   const layoutManager = new LayoutManager(mainWindow);
   debuggerManager = new DebuggerManager();
-  tabManager = new TabManager(mainWindow, debuggerManager);
+  historyManager = new HistoryManager();
+  bookmarkManager = new BookmarkManager();
+  downloadManager = new DownloadManager();
+  sessionManager = new SessionManager();
+
+  tabManager = new TabManager(mainWindow, debuggerManager, historyManager, sessionManager);
   const rpcClient = new RpcClient();
   processManager = new ProcessManager(rpcClient);
 
@@ -34,7 +47,6 @@ async function createWindow() {
   const sidebarView = createPanelView('sidebar');
   const assistantView = createPanelView('assistant');
 
-  // Add panel views to BaseWindow contentView
   mainWindow.contentView.addChildView(toolbarView);
   mainWindow.contentView.addChildView(sidebarView);
   mainWindow.contentView.addChildView(assistantView);
@@ -45,8 +57,24 @@ async function createWindow() {
     assistant: assistantView,
   });
 
-  tabManager.setOnActiveTabChanged((tabView) => {
-    layoutManager.setActiveTabView(tabView);
+  tabManager.setCallbacks({
+    onActiveTabChanged: (tabView) => {
+      layoutManager.setActiveTabView(tabView);
+    },
+    onToggleSidebar: () => {
+      layoutManager.toggleSidebar();
+    },
+    onToggleAssistant: () => {
+      layoutManager.toggleAssistant();
+    },
+    onBookmarkPage: (url, title) => {
+      bookmarkManager?.addBookmark({ url, title });
+    },
+    onAskAI: (text) => {
+      if (!assistantView.webContents.isDestroyed()) {
+        assistantView.webContents.send('chat:incoming-prompt', text);
+      }
+    }
   });
 
   // Setup IPC Handlers
@@ -55,26 +83,27 @@ async function createWindow() {
     layoutManager,
     processManager,
     rpcClient,
+    historyManager,
+    bookmarkManager,
+    downloadManager,
     panelViews: [toolbarView, sidebarView, assistantView],
   });
 
-  // Listen to window resize to recalculate bounds
-  mainWindow.on('resize', () => {
-    layoutManager.updateBounds();
-  });
+  // Resize listeners
+  mainWindow.on('resize', () => layoutManager.updateBounds());
+  mainWindow.on('maximize', () => layoutManager.updateBounds());
+  mainWindow.on('unmaximize', () => layoutManager.updateBounds());
 
-  mainWindow.on('maximize', () => {
-    layoutManager.updateBounds();
-  });
+  // Restore previous session or start clean
+  const savedSession = sessionManager.loadSession();
+  if (savedSession && savedSession.tabs && savedSession.tabs.length > 0) {
+    for (const t of savedSession.tabs) {
+      await tabManager.createTab(t.url);
+    }
+  } else {
+    await tabManager.createTab('https://example.com');
+  }
 
-  mainWindow.on('unmaximize', () => {
-    layoutManager.updateBounds();
-  });
-
-  // Create initial tab
-  await tabManager.createTab('https://example.com');
-
-  // Show window once ready
   mainWindow.show();
   layoutManager.updateBounds();
 

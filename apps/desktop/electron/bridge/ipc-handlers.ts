@@ -4,15 +4,30 @@ import type { TabManager } from '../browser/tab-manager';
 import type { LayoutManager } from '../layout-manager';
 import type { ProcessManager } from './process-manager';
 import type { RpcClient } from './rpc-client';
+import type { HistoryManager } from '../browser/history-manager';
+import type { BookmarkManager } from '../browser/bookmark-manager';
+import type { DownloadManager } from '../browser/download-manager';
 
 export function setupIpcHandlers(deps: {
   tabManager: TabManager;
   layoutManager: LayoutManager;
   processManager: ProcessManager;
   rpcClient: RpcClient;
+  historyManager: HistoryManager;
+  bookmarkManager: BookmarkManager;
+  downloadManager: DownloadManager;
   panelViews: WebContentsView[];
 }) {
-  const { tabManager, layoutManager, processManager, rpcClient, panelViews } = deps;
+  const {
+    tabManager,
+    layoutManager,
+    processManager,
+    rpcClient,
+    historyManager,
+    bookmarkManager,
+    downloadManager,
+    panelViews
+  } = deps;
 
   const broadcastToPanels = (channel: string, ...args: any[]) => {
     for (const view of panelViews) {
@@ -32,13 +47,18 @@ export function setupIpcHandlers(deps: {
     broadcastToPanels(IPC_CHANNELS.BACKEND_STATUS, status);
   });
 
+  // Subscribe DownloadManager updates
+  downloadManager.subscribe((item) => {
+    broadcastToPanels(IPC_CHANNELS.DOWNLOAD_UPDATE, item);
+  });
+
   // Register JSON-RPC methods callable by Python process
   rpcClient.registerMethod('browser.get_tabs', async () => {
     return tabManager.getTabs();
   });
 
-  rpcClient.registerMethod('browser.create_tab', async (params: { url?: string }) => {
-    return await tabManager.createTab(params?.url);
+  rpcClient.registerMethod('browser.create_tab', async (params: { url?: string; is_private?: boolean }) => {
+    return await tabManager.createTab(params?.url, params?.is_private);
   });
 
   rpcClient.registerMethod('browser.switch_tab', async (params: { tab_id: string }) => {
@@ -69,8 +89,8 @@ export function setupIpcHandlers(deps: {
     return tabManager.getTabs();
   });
 
-  ipcMain.handle(IPC_CHANNELS.TAB_CREATE, async (_event, url?: string) => {
-    return await tabManager.createTab(url);
+  ipcMain.handle(IPC_CHANNELS.TAB_CREATE, async (_event, url?: string, isPrivate?: boolean) => {
+    return await tabManager.createTab(url, isPrivate);
   });
 
   ipcMain.handle(IPC_CHANNELS.TAB_CLOSE, async (_event, tabId: string) => {
@@ -79,6 +99,14 @@ export function setupIpcHandlers(deps: {
 
   ipcMain.handle(IPC_CHANNELS.TAB_SWITCH, async (_event, tabId: string) => {
     tabManager.switchTab(tabId);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.TAB_RESTORE_CLOSED, async () => {
+    return tabManager.restoreClosedTab();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.TAB_DUPLICATE, async (_event, tabId: string) => {
+    tabManager.duplicateTab(tabId);
   });
 
   ipcMain.handle(IPC_CHANNELS.NAV_NAVIGATE, async (_event, url: string) => {
@@ -101,6 +129,50 @@ export function setupIpcHandlers(deps: {
     tabManager.stop();
   });
 
+  // History Handlers
+  ipcMain.handle(IPC_CHANNELS.HISTORY_GET, async (_event, limit?: number) => {
+    return historyManager.getHistory(limit);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.HISTORY_SEARCH, async (_event, query: string) => {
+    return historyManager.search(query);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.HISTORY_CLEAR, async () => {
+    historyManager.clear();
+  });
+
+  // Bookmark Handlers
+  ipcMain.handle(IPC_CHANNELS.BOOKMARKS_GET, async () => {
+    return bookmarkManager.getBookmarks();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.BOOKMARK_ADD, async (_event, item: { url: string; title: string; favicon?: string }) => {
+    return bookmarkManager.addBookmark(item);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.BOOKMARK_REMOVE, async (_event, urlOrId: string) => {
+    return bookmarkManager.removeBookmark(urlOrId);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.BOOKMARK_IS_SAVED, async (_event, url: string) => {
+    return bookmarkManager.isBookmarked(url);
+  });
+
+  // Download Handlers
+  ipcMain.handle(IPC_CHANNELS.DOWNLOADS_GET, async () => {
+    return downloadManager.getDownloads();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.DOWNLOAD_OPEN_FILE, async (_event, id: string) => {
+    return await downloadManager.openFile(id);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.DOWNLOAD_OPEN_FOLDER, async (_event, id: string) => {
+    return downloadManager.openFolder(id);
+  });
+
+  // Layout & UI Handlers
   ipcMain.handle(IPC_CHANNELS.PANEL_TOGGLE_SIDEBAR, async () => {
     return layoutManager.toggleSidebar();
   });
@@ -128,7 +200,6 @@ export function setupIpcHandlers(deps: {
   });
 
   ipcMain.handle(IPC_CHANNELS.SEND_CHAT_MESSAGE, async (_event, { message, context }) => {
-    // If Python backend is connected, route via RPC or HTTP
     if (processManager.getStatus().online) {
       try {
         const response = await rpcClient.call('assistant.chat', { message, context });

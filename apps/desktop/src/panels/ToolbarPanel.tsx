@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -8,11 +8,16 @@ import {
   Lock,
   Globe,
   Camera,
-  Bot,
   PanelLeft,
   Search,
   Sparkles,
-  ShieldCheck
+  ShieldCheck,
+  Star,
+  Download,
+  History,
+  ShieldAlert,
+  Clock,
+  Bookmark
 } from 'lucide-react';
 import { useBrowserStore } from '../store/browser-store';
 
@@ -24,6 +29,9 @@ export const ToolbarPanel: React.FC = () => {
     sidebarOpen,
     assistantOpen,
     backendStatus,
+    isCurrentPageBookmarked,
+    history,
+    bookmarks,
     createTab,
     closeTab,
     switchTab,
@@ -34,11 +42,22 @@ export const ToolbarPanel: React.FC = () => {
     toggleSidebar,
     toggleAssistant,
     capturePage,
-    inspectPage
+    inspectPage,
+    toggleBookmarkCurrentPage,
+    refreshBookmarks,
+    refreshHistory,
+    setSidebarActiveTab
   } = useBrowserStore();
 
   const [addressInput, setAddressInput] = useState('');
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const [isInspecting, setIsInspecting] = useState(false);
+  const suggestionRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    refreshBookmarks();
+    refreshHistory();
+  }, [refreshBookmarks, refreshHistory]);
 
   useEffect(() => {
     if (activeTab?.url) {
@@ -46,18 +65,26 @@ export const ToolbarPanel: React.FC = () => {
     }
   }, [activeTab?.url]);
 
+  const handleNavigateSubmit = (urlToNavigate?: string) => {
+    let url = (urlToNavigate || addressInput).trim();
+    setShowSuggestions(false);
+    if (!url) return;
+
+    if (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('about:')) {
+      if (url.includes('.') && !url.includes(' ')) {
+        url = 'https://' + url;
+      } else {
+        url = `https://www.google.com/search?q=${encodeURIComponent(url)}`;
+      }
+    }
+    navigate(url);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
-      let url = addressInput.trim();
-      if (!url) return;
-      if (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('about:')) {
-        if (url.includes('.') && !url.includes(' ')) {
-          url = 'https://' + url;
-        } else {
-          url = `https://www.google.com/search?q=${encodeURIComponent(url)}`;
-        }
-      }
-      navigate(url);
+      handleNavigateSubmit();
+    } else if (e.key === 'Escape') {
+      setShowSuggestions(false);
     }
   };
 
@@ -80,6 +107,32 @@ export const ToolbarPanel: React.FC = () => {
     }
   };
 
+  // Filter suggestions from history and bookmarks
+  const suggestions = React.useMemo(() => {
+    const q = addressInput.toLowerCase().trim();
+    if (!q || q === activeTab?.url?.toLowerCase()) return [];
+
+    const matches: Array<{ title: string; url: string; type: 'history' | 'bookmark' }> = [];
+
+    for (const b of bookmarks) {
+      if (b.title.toLowerCase().includes(q) || b.url.toLowerCase().includes(q)) {
+        matches.push({ title: b.title, url: b.url, type: 'bookmark' });
+        if (matches.length >= 4) break;
+      }
+    }
+
+    for (const h of history) {
+      if (h.title.toLowerCase().includes(q) || h.url.toLowerCase().includes(q)) {
+        if (!matches.some(m => m.url === h.url)) {
+          matches.push({ title: h.title, url: h.url, type: 'history' });
+        }
+        if (matches.length >= 8) break;
+      }
+    }
+
+    return matches;
+  }, [addressInput, bookmarks, history, activeTab?.url]);
+
   return (
     <div style={{
       display: 'flex',
@@ -89,7 +142,8 @@ export const ToolbarPanel: React.FC = () => {
       backgroundColor: 'var(--bg-primary)',
       borderBottom: '1px solid var(--border-subtle)',
       padding: '4px 8px 6px 8px',
-      gap: '4px'
+      gap: '4px',
+      position: 'relative'
     }}>
       {/* Top Tabs Row */}
       <div style={{
@@ -118,11 +172,14 @@ export const ToolbarPanel: React.FC = () => {
                 minWidth: '110px',
                 fontSize: '12px',
                 color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
-                transition: 'background-color var(--transition-fast)'
+                position: 'relative',
+                overflow: 'hidden'
               }}
             >
               {tab.isLoading ? (
                 <RotateCw size={12} className="animate-spin" style={{ color: 'var(--accent-primary)' }} />
+              ) : tab.isPrivate ? (
+                <ShieldAlert size={12} style={{ color: 'var(--warning)' }} />
               ) : (
                 <Globe size={12} style={{ opacity: 0.7 }} />
               )}
@@ -144,10 +201,23 @@ export const ToolbarPanel: React.FC = () => {
                   borderRadius: 'var(--radius-sm)',
                   opacity: 0.6
                 }}
-                title="Close Tab"
+                title="Close Tab (Ctrl+W)"
               >
                 <X size={12} />
               </button>
+
+              {/* Progress loading bar under active tab */}
+              {tab.isLoading && (
+                <div style={{
+                  position: 'absolute',
+                  bottom: 0,
+                  left: 0,
+                  height: '2px',
+                  width: '100%',
+                  backgroundColor: 'var(--accent-primary)',
+                  animation: 'pulse 1s infinite'
+                }} />
+              )}
             </div>
           );
         })}
@@ -156,9 +226,18 @@ export const ToolbarPanel: React.FC = () => {
           onClick={() => createTab()}
           className="icon-btn"
           style={{ width: '28px', height: '28px' }}
-          title="New Tab"
+          title="New Tab (Ctrl+T)"
         >
           <Plus size={14} />
+        </button>
+
+        <button
+          onClick={() => createTab('https://duckduckgo.com', true)}
+          className="icon-btn"
+          style={{ width: '28px', height: '28px' }}
+          title="New Private Tab"
+        >
+          <ShieldAlert size={13} style={{ color: 'var(--text-muted)' }} />
         </button>
 
         {/* Spacer */}
@@ -190,13 +269,14 @@ export const ToolbarPanel: React.FC = () => {
         display: 'flex',
         alignItems: 'center',
         gap: '6px',
-        width: '100%'
+        width: '100%',
+        position: 'relative'
       }}>
         <button
           onClick={goBack}
           disabled={!activeTab?.canGoBack}
           className="icon-btn"
-          title="Back"
+          title="Back (Alt+Left)"
         >
           <ArrowLeft size={16} />
         </button>
@@ -204,14 +284,14 @@ export const ToolbarPanel: React.FC = () => {
           onClick={goForward}
           disabled={!activeTab?.canGoForward}
           className="icon-btn"
-          title="Forward"
+          title="Forward (Alt+Right)"
         >
           <ArrowRight size={16} />
         </button>
         <button
           onClick={reload}
           className="icon-btn"
-          title="Reload"
+          title="Reload (Ctrl+R)"
         >
           <RotateCw size={15} />
         </button>
@@ -226,7 +306,8 @@ export const ToolbarPanel: React.FC = () => {
           padding: '0 10px',
           height: '32px',
           border: '1px solid var(--border-subtle)',
-          gap: '8px'
+          gap: '8px',
+          position: 'relative'
         }}>
           {addressInput.startsWith('https://') ? (
             <Lock size={13} style={{ color: 'var(--success)' }} />
@@ -236,7 +317,11 @@ export const ToolbarPanel: React.FC = () => {
           <input
             type="text"
             value={addressInput}
-            onChange={(e) => setAddressInput(e.target.value)}
+            onChange={(e) => {
+              setAddressInput(e.target.value);
+              setShowSuggestions(true);
+            }}
+            onFocus={() => setShowSuggestions(true)}
             onKeyDown={handleKeyDown}
             placeholder="Search or enter URL..."
             style={{
@@ -246,6 +331,19 @@ export const ToolbarPanel: React.FC = () => {
               color: 'var(--text-primary)'
             }}
           />
+
+          {/* Bookmark Button */}
+          <button
+            onClick={toggleBookmarkCurrentPage}
+            style={{
+              padding: '4px',
+              color: isCurrentPageBookmarked ? 'var(--warning)' : 'var(--text-muted)',
+              cursor: 'pointer'
+            }}
+            title={isCurrentPageBookmarked ? 'Remove Bookmark' : 'Bookmark this tab'}
+          >
+            <Star size={14} fill={isCurrentPageBookmarked ? 'currentColor' : 'none'} />
+          </button>
         </div>
 
         {/* Action Buttons */}
@@ -273,7 +371,7 @@ export const ToolbarPanel: React.FC = () => {
             backgroundColor: sidebarOpen ? 'var(--bg-hover)' : 'transparent',
             color: sidebarOpen ? 'var(--accent-primary)' : undefined
           }}
-          title="Toggle Navigation Sidebar"
+          title="Toggle Navigation Sidebar (Ctrl+H)"
         >
           <PanelLeft size={16} />
         </button>
@@ -285,11 +383,67 @@ export const ToolbarPanel: React.FC = () => {
             backgroundColor: assistantOpen ? 'var(--bg-hover)' : 'transparent',
             color: assistantOpen ? 'var(--accent-primary)' : undefined
           }}
-          title="Toggle AI Assistant"
+          title="Toggle AI Assistant (Ctrl+I)"
         >
           <Sparkles size={16} />
         </button>
       </div>
+
+      {/* Autocomplete Suggestions Dropdown */}
+      {showSuggestions && suggestions.length > 0 && (
+        <div
+          ref={suggestionRef}
+          style={{
+            position: 'absolute',
+            top: '72px',
+            left: '110px',
+            right: '160px',
+            backgroundColor: 'var(--bg-secondary)',
+            border: '1px solid var(--border-strong)',
+            borderRadius: 'var(--radius-md)',
+            boxShadow: 'var(--shadow-lg)',
+            zIndex: 9999,
+            padding: '6px 0',
+            maxHeight: '260px',
+            overflowY: 'auto'
+          }}
+        >
+          {suggestions.map((item, idx) => (
+            <div
+              key={idx}
+              onClick={() => handleNavigateSubmit(item.url)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '6px 12px',
+                cursor: 'pointer',
+                fontSize: '12px',
+                color: 'var(--text-primary)',
+                transition: 'background-color 100ms ease'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = 'var(--bg-hover)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }}
+            >
+              {item.type === 'bookmark' ? (
+                <Bookmark size={13} style={{ color: 'var(--warning)', flexShrink: 0 }} />
+              ) : (
+                <Clock size={13} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+              )}
+              <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '240px' }}>
+                {item.title}
+              </span>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                {item.url}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

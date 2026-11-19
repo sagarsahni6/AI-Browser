@@ -3,6 +3,11 @@ import type { BrowserTab, PageObservation } from '@ai-browser/shared';
 import { DebuggerManager } from './debugger-manager';
 import { PageObserver } from './page-observer';
 import { ScreenshotManager } from './screenshot-manager';
+import { HistoryManager } from './history-manager';
+import { SessionManager } from './session-manager';
+import { attachContextMenu } from './context-menu';
+import { registerShortcuts } from './keyboard-shortcuts';
+import { generateErrorPageHtml } from './error-page';
 
 export interface TabItem {
   id: string;
@@ -17,16 +22,43 @@ export class TabManager {
   private tabs: Map<string, TabItem> = new Map();
   private activeTabId: string = '';
   private debuggerManager: DebuggerManager;
+  private historyManager: HistoryManager;
+  private sessionManager: SessionManager;
   private listeners: Set<TabStateListener> = new Set();
   private onActiveTabChanged?: (tabView: WebContentsView | null) => void;
+  private onToggleSidebar?: () => void;
+  private onToggleAssistant?: () => void;
+  private onBookmarkPage?: (url: string, title: string) => void;
+  private onAskAI?: (text: string) => void;
 
-  constructor(baseWindow: BaseWindow, debuggerManager: DebuggerManager) {
+  constructor(
+    baseWindow: BaseWindow,
+    debuggerManager: DebuggerManager,
+    historyManager: HistoryManager,
+    sessionManager: SessionManager
+  ) {
     this.baseWindow = baseWindow;
     this.debuggerManager = debuggerManager;
+    this.historyManager = historyManager;
+    this.sessionManager = sessionManager;
+  }
+
+  public setCallbacks(cb: {
+    onActiveTabChanged?: (tabView: WebContentsView | null) => void;
+    onToggleSidebar?: () => void;
+    onToggleAssistant?: () => void;
+    onBookmarkPage?: (url: string, title: string) => void;
+    onAskAI?: (text: string) => void;
+  }) {
+    if (cb.onActiveTabChanged) this.onActiveTabChanged = cb.onActiveTabChanged;
+    if (cb.onToggleSidebar) this.onToggleSidebar = cb.onToggleSidebar;
+    if (cb.onToggleAssistant) this.onToggleAssistant = cb.onToggleAssistant;
+    if (cb.onBookmarkPage) this.onBookmarkPage = cb.onBookmarkPage;
+    if (cb.onAskAI) this.onAskAI = cb.onAskAI;
   }
 
   public setOnActiveTabChanged(callback: (tabView: WebContentsView | null) => void) {
-    this.onActiveTabChanged = callback;
+    this.setCallbacks({ onActiveTabChanged: callback });
   }
 
   public subscribe(listener: TabStateListener): () => void {
@@ -39,6 +71,11 @@ export class TabManager {
     for (const listener of this.listeners) {
       listener(tabList, this.activeTabId);
     }
+    // Automatically save session state
+    this.sessionManager.saveSession(
+      tabList.map(t => ({ url: t.url, title: t.title })),
+      Math.max(0, tabList.findIndex(t => t.id === this.activeTabId))
+    );
   }
 
   public getTabs(): BrowserTab[] {
@@ -63,11 +100,14 @@ export class TabManager {
     return wc.canGoForward ? wc.canGoForward() : false;
   }
 
-  public async createTab(initialUrl = 'https://example.com'): Promise<string> {
+  public async createTab(initialUrl = 'https://example.com', isPrivate = false): Promise<string> {
     const id = `tab-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+
+    const partition = isPrivate ? `partition:incognito-${Date.now()}` : 'persist:default';
 
     const view = new WebContentsView({
       webPreferences: {
+        partition,
         sandbox: true,
         contextIsolation: true,
         nodeIntegration: false,
@@ -83,6 +123,7 @@ export class TabManager {
       isLoading: true,
       canGoBack: false,
       canGoForward: false,
+      isPrivate,
     };
 
     const tabItem: TabItem = { id, view, info };
@@ -101,6 +142,12 @@ export class TabManager {
       info.canGoForward = this.canGoForward(wc);
       info.url = wc.getURL();
       info.title = wc.getTitle() || info.title;
+
+      // Add to history if not in private mode and valid web url
+      if (!isPrivate && info.url && !info.url.startsWith('data:') && !info.url.startsWith('about:')) {
+        this.historyManager.addEntry(info.url, info.title, false);
+      }
+
       this.notify();
     });
 
@@ -121,6 +168,33 @@ export class TabManager {
       info.canGoBack = this.canGoBack(wc);
       info.canGoForward = this.canGoForward(wc);
       this.notify();
+    });
+
+    wc.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+      if (errorCode === -3) return; // Ignore aborted requests
+      console.warn(`[Tab] Failed to load ${validatedURL}: ${errorCode} (${errorDescription})`);
+      const errorPageDataUrl = generateErrorPageHtml(validatedURL, errorCode, errorDescription);
+      wc.loadURL(errorPageDataUrl);
+    });
+
+    // Attach Context Menu
+    attachContextMenu(wc, {
+      onBookmarkPage: (url, title) => this.onBookmarkPage?.(url, title),
+      onAskAI: (text) => this.onAskAI?.(text),
+    });
+
+    // Register Keyboard Shortcuts
+    registerShortcuts(wc, {
+      onNewTab: () => this.createTab(),
+      onCloseTab: () => this.closeTab(this.activeTabId),
+      onReload: () => this.reload(),
+      onRestoreClosedTab: () => this.restoreClosedTab(),
+      onGoBack: () => this.goBack(),
+      onGoForward: () => this.goForward(),
+      onNextTab: () => this.cycleTab(1),
+      onPrevTab: () => this.cycleTab(-1),
+      onToggleSidebar: () => this.onToggleSidebar?.(),
+      onToggleAssistant: () => this.onToggleAssistant?.(),
     });
 
     this.baseWindow.contentView.addChildView(view);
@@ -155,6 +229,11 @@ export class TabManager {
     const tabItem = this.tabs.get(tabId);
     if (!tabItem) return;
 
+    // Record in closed tabs stack
+    if (!tabItem.info.isPrivate) {
+      this.sessionManager.recordClosedTab(tabItem.info.url, tabItem.info.title);
+    }
+
     this.debuggerManager.removeClient(tabItem.view.webContents.id);
 
     try {
@@ -179,6 +258,31 @@ export class TabManager {
     } else {
       this.notify();
     }
+  }
+
+  public restoreClosedTab(): string | null {
+    const closed = this.sessionManager.popRecentlyClosedTab();
+    if (closed && closed.url) {
+      this.createTab(closed.url);
+      return closed.url;
+    }
+    return null;
+  }
+
+  public duplicateTab(tabId: string): void {
+    const item = this.tabs.get(tabId);
+    if (item && item.info.url) {
+      this.createTab(item.info.url, item.info.isPrivate);
+    }
+  }
+
+  public cycleTab(direction: 1 | -1): void {
+    const tabIds = Array.from(this.tabs.keys());
+    if (tabIds.length <= 1) return;
+
+    const currentIdx = tabIds.indexOf(this.activeTabId);
+    const nextIdx = (currentIdx + direction + tabIds.length) % tabIds.length;
+    this.switchTab(tabIds[nextIdx]);
   }
 
   public navigate(url: string): void {

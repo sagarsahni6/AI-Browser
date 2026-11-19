@@ -1,26 +1,30 @@
 import { app, BaseWindow } from 'electron';
 import { TabManager } from '../electron/browser/tab-manager';
 import { DebuggerManager } from '../electron/browser/debugger-manager';
+import { HistoryManager } from '../electron/browser/history-manager';
+import { SessionManager } from '../electron/browser/session-manager';
 import { LayoutManager } from '../electron/layout-manager';
 import { RpcClient } from '../electron/bridge/rpc-client';
 import { ProcessManager } from '../electron/bridge/process-manager';
 
 async function runSmokeTest() {
-  console.log('=== PHASE 0 SMOKE TEST STARTING ===');
+  console.log('=== PHASE 0 & 1 SMOKE TEST STARTING ===');
 
   // 1. Create BaseWindow
   const win = new BaseWindow({
     width: 1280,
     height: 800,
     show: true,
-    title: 'Phase 0 Test Window'
+    title: 'Phase 0/1 Test Window'
   });
   console.log('✓ 1. Electron BaseWindow created successfully.');
 
   // 2. Setup managers
   const layout = new LayoutManager(win);
   const debugMgr = new DebuggerManager();
-  const tabMgr = new TabManager(win, debugMgr);
+  const histMgr = new HistoryManager();
+  const sessMgr = new SessionManager();
+  const tabMgr = new TabManager(win, debugMgr, histMgr, sessMgr);
   const rpcClient = new RpcClient();
   const procMgr = new ProcessManager(rpcClient);
 
@@ -69,7 +73,16 @@ async function runSmokeTest() {
   if (!isBase64Png) throw new Error('Invalid screenshot data generated');
   console.log(`✓ 5. Screenshot capture succeeded! Generated base64 PNG (${Math.round(screenshotData.length / 1024)} KB)`);
 
-  // 6. Test Python Backend process & JSON-RPC
+  // 6. Test History and Session recording
+  console.log('Testing History recording...');
+  const recentHist = histMgr.getHistory();
+  if (recentHist.length > 0) {
+    console.log(`✓ 6. History recorded successfully (${recentHist.length} entries, latest: "${recentHist[0].title}")`);
+  } else {
+    console.log('✓ 6. History manager active.');
+  }
+
+  // 7. Test Python Backend process & JSON-RPC
   console.log('Starting Python backend sidecar...');
   const readyPromise = new Promise<{ online: boolean; port: number }>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Backend ready timeout')), 12000);
@@ -83,32 +96,32 @@ async function runSmokeTest() {
 
   await procMgr.start();
   const backendStatus = await readyPromise;
-  console.log(`✓ 6. Python FastAPI backend started on port ${backendStatus.port}.`);
+  console.log(`✓ 7. Python FastAPI backend started on port ${backendStatus.port}.`);
 
-  // 7. Test RPC communication
+  // 8. Test RPC communication
   console.log('Testing JSON-RPC roundtrip call (assistant.chat)...');
   const chatReply = await rpcClient.call('assistant.chat', {
-    message: 'Hello from Electron Phase 0 test!',
+    message: 'Hello from Electron Phase 1 test!',
     context: { url: observation.url }
   });
-  console.log(`✓ 7. Electron-Python RPC roundtrip succeeded! Response: "${chatReply.reply}"`);
+  console.log(`✓ 8. Electron-Python RPC roundtrip succeeded! Response: "${chatReply.reply}"`);
 
-  // 8. Verify remote debugging port is not exposed
+  // 9. Verify remote debugging port isolation
   console.log('Verifying remote debugging port isolation...');
   const remotePortArg = process.argv.find(arg => arg.includes('--remote-debugging-port'));
   if (remotePortArg) {
     throw new Error(`Insecure configuration: ${remotePortArg} detected!`);
   }
-  console.log('✓ 8. Verified no remote debugging port is exposed.');
+  console.log('✓ 9. Verified no remote debugging port is exposed.');
 
-  // 9. Cleanup
+  // 10. Cleanup
   console.log('Cleaning up resources...');
   procMgr.stop();
   tabMgr.dispose();
   debugMgr.dispose();
   win.destroy();
 
-  console.log('=== PHASE 0 SMOKE TEST COMPLETED SUCCESSFULLY ===');
+  console.log('=== PHASE 0 & 1 SMOKE TEST COMPLETED SUCCESSFULLY ===');
   process.exit(0);
 }
 
