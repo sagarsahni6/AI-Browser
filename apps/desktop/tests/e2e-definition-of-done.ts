@@ -78,7 +78,7 @@ async function runDefinitionOfDoneTests() {
   const researchRpc = await rpcClient.call('assistant.chat', {
     message: 'Synthesize cited research for "Autonomous Agent Architecture"',
     context: { topic: 'Autonomous Agent Architecture' }
-  });
+  }, 60000);
   if (!researchRpc) throw new Error('Test 3 failed');
   console.log(`✓ TEST 3 PASSED: Research response generated with source citations.\n`);
 

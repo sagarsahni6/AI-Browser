@@ -53,6 +53,19 @@ class NvidiaNimProvider(BaseAIProvider):
             pass
         return [self._default_model, self._vision_model]
 
+    def _clean_messages(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        import re
+        clean = []
+        for m in messages:
+            content = m.get("content", "")
+            if isinstance(content, str):
+                content = re.sub(r'[\ud800-\udfff]', '', content).encode("utf-8", "ignore").decode("utf-8")
+            clean.append({
+                "role": m.get("role", "user"),
+                "content": content
+            })
+        return clean
+
     async def chat_completion(
         self,
         messages: List[Dict[str, Any]],
@@ -72,13 +85,15 @@ class NvidiaNimProvider(BaseAIProvider):
 
         payload: Dict[str, Any] = {
             "model": target_model,
-            "messages": messages,
+            "messages": self._clean_messages(messages),
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": False
         }
         if tools:
             payload["tools"] = tools
+
+        payload_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8", "ignore")
 
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.post(
@@ -87,7 +102,7 @@ class NvidiaNimProvider(BaseAIProvider):
                     "Authorization": f"Bearer {self._api_key}",
                     "Content-Type": "application/json"
                 },
-                json=payload
+                content=payload_bytes
             )
             resp.raise_for_status()
             data = resp.json()
@@ -121,13 +136,15 @@ class NvidiaNimProvider(BaseAIProvider):
 
         payload: Dict[str, Any] = {
             "model": target_model,
-            "messages": messages,
+            "messages": self._clean_messages(messages),
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": True
         }
         if tools:
             payload["tools"] = tools
+
+        payload_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8", "ignore")
 
         async with httpx.AsyncClient(timeout=90.0) as client:
             async with client.stream(
@@ -137,7 +154,7 @@ class NvidiaNimProvider(BaseAIProvider):
                     "Authorization": f"Bearer {self._api_key}",
                     "Content-Type": "application/json"
                 },
-                json=payload
+                content=payload_bytes
             ) as response:
                 response.raise_for_status()
                 yielded_any = False

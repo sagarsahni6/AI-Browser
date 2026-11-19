@@ -108,7 +108,7 @@ export class RpcClient extends EventEmitter {
     }
   }
 
-  public async call<T = any>(method: string, params: any = {}, timeoutMs = 15000): Promise<T> {
+  public async call<T = any>(method: string, params: any = {}, timeoutMs = 60000): Promise<T> {
     const id = this.nextId++;
     const req: JsonRpcRequest = {
       jsonrpc: '2.0',

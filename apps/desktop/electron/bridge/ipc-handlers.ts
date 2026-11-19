@@ -247,22 +247,30 @@ export function setupIpcHandlers(deps: {
   ipcMain.handle(IPC_CHANNELS.SEND_CHAT_MESSAGE, async (_event, { message, context }) => {
     if (processManager.getStatus().online) {
       try {
+        const sanitizeString = (str?: string): string => {
+          if (!str) return '';
+          return typeof (str as any).toWellFormed === 'function'
+            ? (str as any).toWellFormed()
+            : str.replace(/[\uD800-\uDFFF]/g, '');
+        };
+
+        const cleanMessage = sanitizeString(message);
         const enrichedContext: Record<string, any> = { ...(context || {}) };
         if (!enrichedContext.visibleText && tabManager.getActiveTab()) {
           try {
             const obs = await tabManager.inspectActivePage();
             if (obs) {
-              enrichedContext.title = obs.title;
-              enrichedContext.url = obs.url;
+              enrichedContext.title = sanitizeString(obs.title);
+              enrichedContext.url = sanitizeString(obs.url);
               if (obs.visibleText) {
-                enrichedContext.visibleText = obs.visibleText.slice(0, 4000);
+                enrichedContext.visibleText = sanitizeString(obs.visibleText).slice(0, 4000);
               }
             }
           } catch (e) {
             // CDP inspect fallback
           }
         }
-        const response = await rpcClient.call('assistant.chat', { message, context: enrichedContext });
+        const response = await rpcClient.call('assistant.chat', { message: cleanMessage, context: enrichedContext });
         return response?.reply || 'Assistant processed request.';
       } catch (err: any) {
         return `Backend communication error: ${err.message}`;

@@ -19,13 +19,23 @@ from backend.app.api.search import router as search_router
 from backend.app.ai.router import ModelRouter
 from backend.app.api.assistant import build_system_prompt
 
+def sanitize_val(val):
+    if isinstance(val, str):
+        return val.encode("utf-8", "ignore").decode("utf-8")
+    if isinstance(val, dict):
+        return {sanitize_val(k): sanitize_val(v) for k, v in val.items()}
+    if isinstance(val, list):
+        return [sanitize_val(x) for x in val]
+    return val
+
 # Handle RPC methods invoked directly by Electron
 async def handle_assistant_chat(params: dict):
-    msg_content = params.get("message", "")
-    context = params.get("context", {})
-    conv_id = params.get("conversation_id")
-    provider_id = params.get("provider_id")
-    preferred_model = params.get("model")
+    clean_params = sanitize_val(params) or {}
+    msg_content = clean_params.get("message", "")
+    context = clean_params.get("context", {})
+    conv_id = clean_params.get("conversation_id")
+    provider_id = clean_params.get("provider_id")
+    preferred_model = clean_params.get("model")
 
     # 1. Persist user message to database
     try:

@@ -29,6 +29,11 @@ class ChatResponse(BaseModel):
     conversation_id: str
     model: str
 
+def sanitize_text(text: Optional[str]) -> str:
+    if not text:
+        return ""
+    return str(text).encode("utf-8", "ignore").decode("utf-8")
+
 def build_system_prompt(page_context: Optional[Dict[str, Any]] = None, selected_text: Optional[str] = None) -> str:
     prompt = (
         "You are the intelligent AI Assistant integrated into AI Browser. "
@@ -36,17 +41,19 @@ def build_system_prompt(page_context: Optional[Dict[str, Any]] = None, selected_
     )
 
     if page_context:
+        title = sanitize_text(page_context.get("title", "Unknown"))
+        url = sanitize_text(page_context.get("url", "Unknown"))
         prompt += (
             f"\n[CURRENT WEBPAGE CONTEXT]\n"
-            f"Title: {page_context.get('title', 'Unknown')}\n"
-            f"URL: {page_context.get('url', 'Unknown')}\n"
+            f"Title: {title}\n"
+            f"URL: {url}\n"
         )
         if page_context.get("visibleText"):
-            snippet = page_context["visibleText"][:4000]
+            snippet = sanitize_text(page_context["visibleText"])[:4000]
             prompt += f"Page Content Excerpt:\n{snippet}\n"
 
     if selected_text:
-        prompt += f"\n[USER SELECTED TEXT]:\n\"{selected_text}\"\n"
+        prompt += f"\n[USER SELECTED TEXT]:\n\"{sanitize_text(selected_text)}\"\n"
 
     return prompt
 

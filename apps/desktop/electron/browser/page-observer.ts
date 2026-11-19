@@ -85,12 +85,19 @@ export class PageObserver {
     // Get accessibility tree
     const axTree = await this.axReader.getTree();
 
+    const sanitizeText = (str?: string): string => {
+      if (!str) return '';
+      return typeof (str as any).toWellFormed === 'function'
+        ? (str as any).toWellFormed()
+        : str.replace(/[\uD800-\uDFFF]/g, '');
+    };
+
     return {
       tabId,
-      url: val.url,
-      title: val.title,
+      url: sanitizeText(val.url),
+      title: sanitizeText(val.title),
       viewport: val.viewport,
-      visibleText: val.visibleText,
+      visibleText: sanitizeText(val.visibleText),
       interactiveElements: val.interactiveElements,
       accessibilityTree: axTree
     };
