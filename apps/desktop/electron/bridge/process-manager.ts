@@ -1,0 +1,119 @@
+import { spawn, type ChildProcess } from 'child_process';
+import path from 'path';
+import crypto from 'crypto';
+import fs from 'fs';
+import { EventEmitter } from 'events';
+import { RpcClient } from './rpc-client';
+
+function findMonorepoRoot(): string {
+  let curr = __dirname;
+  for (let i = 0; i < 6; i++) {
+    if (fs.existsSync(path.join(curr, 'backend', 'app', 'main.py'))) {
+      return curr;
+    }
+    const parent = path.dirname(curr);
+    if (parent === curr) break;
+    curr = parent;
+  }
+  return process.cwd();
+}
+
+export class ProcessManager extends EventEmitter {
+  private child: ChildProcess | null = null;
+  private rpcClient: RpcClient;
+  private secretToken: string;
+  private port = 8000;
+  private isOnline = false;
+
+  constructor(rpcClient: RpcClient) {
+    super();
+    this.rpcClient = rpcClient;
+    this.secretToken = crypto.randomBytes(32).toString('hex');
+  }
+
+  public getSecretToken(): string {
+    return this.secretToken;
+  }
+
+  public getPort(): number {
+    return this.port;
+  }
+
+  public getStatus(): { online: boolean; port: number } {
+    return { online: this.isOnline, port: this.port };
+  }
+
+  public async start(): Promise<void> {
+    const rootDir = findMonorepoRoot();
+    const venvPythonWin = path.join(rootDir, 'backend/.venv/Scripts/python.exe');
+    const pythonExe = fs.existsSync(venvPythonWin) ? venvPythonWin : 'python';
+
+    console.log(`[ProcessManager] Monorepo root: ${rootDir}`);
+    console.log(`[ProcessManager] Spawning Python backend using: ${pythonExe}`);
+
+    this.port = 8000;
+
+    const env = {
+      ...process.env,
+      HOST: '127.0.0.1',
+      PORT: this.port.toString(),
+      SECRET_TOKEN: this.secretToken,
+      PYTHONUNBUFFERED: '1',
+      PYTHONPATH: `${rootDir};${path.join(rootDir, 'backend')}`
+    };
+
+    this.child = spawn(pythonExe, ['-m', 'backend.app.main'], {
+      cwd: rootDir,
+      env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    if (this.child.stdin && this.child.stdout) {
+      this.rpcClient.setStreams(this.child.stdin, this.child.stdout);
+    }
+
+    if (this.child.stderr) {
+      this.child.stderr.on('data', (data: Buffer) => {
+        const text = data.toString('utf-8').trim();
+        if (text) {
+          console.error(`[Python stderr] ${text}`);
+        }
+      });
+    }
+
+    this.rpcClient.on('ready', (readyMsg: { port?: number }) => {
+      this.isOnline = true;
+      if (readyMsg.port) {
+        this.port = readyMsg.port;
+      }
+      console.log(`[ProcessManager] Python backend READY on 127.0.0.1:${this.port}`);
+      this.emit('status', { online: true, port: this.port });
+    });
+
+    this.child.on('error', (err) => {
+      console.error('[ProcessManager] Python process error:', err);
+      this.isOnline = false;
+      this.emit('status', { online: false, port: this.port });
+    });
+
+    this.child.on('exit', (code, signal) => {
+      console.log(`[ProcessManager] Python process exited with code ${code}, signal ${signal}`);
+      this.isOnline = false;
+      this.emit('status', { online: false, port: this.port });
+    });
+  }
+
+  public stop(): void {
+    if (this.child) {
+      console.log('[ProcessManager] Terminating Python backend...');
+      this.rpcClient.dispose();
+      try {
+        this.child.kill('SIGTERM');
+      } catch (err) {
+        console.warn('Error killing python child:', err);
+      }
+      this.child = null;
+      this.isOnline = false;
+    }
+  }
+}
