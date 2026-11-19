@@ -16,16 +16,18 @@ from backend.app.api.conversations import router as conversations_router
 from backend.app.api.tasks import router as tasks_router
 from backend.app.api.providers import router as providers_router
 from backend.app.api.search import router as search_router
+from backend.app.ai.router import ModelRouter
+from backend.app.api.assistant import build_system_prompt
 
 # Handle RPC methods invoked directly by Electron
 async def handle_assistant_chat(params: dict):
     msg_content = params.get("message", "")
     context = params.get("context", {})
     conv_id = params.get("conversation_id")
+    provider_id = params.get("provider_id")
+    preferred_model = params.get("model")
 
-    reply_content = f"Python AI Assistant received: '{msg_content}'. Context attached: {list(context.keys())}. Ready to assist."
-
-    # Persist message and reply to database
+    # 1. Persist user message to database
     try:
         async with AsyncSessionLocal() as session:
             repo = Repository(session)
@@ -40,17 +42,53 @@ async def handle_assistant_chat(params: dict):
                 tab_id=context.get("tabId"),
                 url=context.get("url")
             )
+    except Exception as e:
+        sys.stderr.write(f"[DB Error in RPC] {e}\n")
+
+    # 2. Route to active AI Provider (NVIDIA NIM)
+    provider, model = ModelRouter.route_for_task(
+        task_type="text",
+        preferred_provider=provider_id,
+        preferred_model=preferred_model
+    )
+
+    system_prompt = build_system_prompt(context)
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": msg_content}
+    ]
+
+    reply_content = ""
+    try:
+        # Stream response chunks to Electron in real-time
+        async for chunk in provider.stream_completion(messages=messages, model=model):
+            reply_content += chunk
+            bridge.notify("chat:stream", {"chunk": chunk, "conversation_id": conv_id})
+    except Exception as stream_err:
+        sys.stderr.write(f"[Stream Error, falling back to chat_completion] {stream_err}\n")
+        try:
+            result = await provider.chat_completion(messages=messages, model=model)
+            reply_content = result.content or "No response generated."
+        except Exception as err:
+            sys.stderr.write(f"[AI Chat Error] {err}\n")
+            reply_content = f"AI Assistant error: {str(err)}"
+
+    # 3. Persist assistant reply to database
+    try:
+        async with AsyncSessionLocal() as session:
+            repo = Repository(session)
             await repo.add_message(
                 conversation_id=conv_id,
                 sender="assistant",
                 content=reply_content
             )
     except Exception as e:
-        sys.stderr.write(f"[DB Error in RPC] {e}\n")
+        sys.stderr.write(f"[DB Error in RPC saving reply] {e}\n")
 
     return {
         "reply": reply_content,
-        "conversation_id": conv_id
+        "conversation_id": conv_id,
+        "model": model
     }
 
 bridge.register_method("assistant.chat", handle_assistant_chat)

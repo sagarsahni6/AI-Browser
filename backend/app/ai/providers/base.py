@@ -8,7 +8,7 @@ class ChatCompletionResult(BaseModel):
     model: str
     tool_calls: Optional[List[Dict[str, Any]]] = None
     finish_reason: Optional[str] = None
-    usage: Optional[Dict[str, int]] = None
+    usage: Optional[Dict[str, Any]] = None
 
 class BaseAIProvider(ABC):
     @property

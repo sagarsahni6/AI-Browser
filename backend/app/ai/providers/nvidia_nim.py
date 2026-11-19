@@ -1,4 +1,5 @@
 import json
+import os
 import httpx
 from typing import AsyncGenerator, Dict, List, Optional, Any
 from backend.app.ai.providers.base import BaseAIProvider, ChatCompletionResult
@@ -7,7 +8,7 @@ from backend.app.config import settings
 
 class NvidiaNimProvider(BaseAIProvider):
     def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None, default_model: Optional[str] = None):
-        self._api_key = api_key or settings.NVIDIA_API_KEY
+        self._api_key = api_key or os.environ.get("NVIDIA_API_KEY") or settings.NVIDIA_API_KEY
         self._base_url = (base_url or settings.NVIDIA_BASE_URL).rstrip("/")
         self._default_model = default_model or settings.NVIDIA_MODEL
         self._vision_model = settings.NVIDIA_VISION_MODEL
@@ -139,6 +140,9 @@ class NvidiaNimProvider(BaseAIProvider):
                 json=payload
             ) as response:
                 response.raise_for_status()
+                yielded_any = False
+                reasoning_buffer: List[str] = []
+
                 async for line in response.aiter_lines():
                     line = line.strip()
                     if not line or line.startswith(":"):
@@ -150,11 +154,19 @@ class NvidiaNimProvider(BaseAIProvider):
                         try:
                             chunk = json.loads(data_str)
                             delta = chunk["choices"][0].get("delta", {})
-                            content = delta.get("content") or delta.get("reasoning_content")
+                            content = delta.get("content")
                             if content:
+                                yielded_any = True
                                 yield content
+                            elif not yielded_any:
+                                r_chunk = delta.get("reasoning_content")
+                                if r_chunk:
+                                    reasoning_buffer.append(r_chunk)
                         except Exception:
                             pass
+
+                if not yielded_any and reasoning_buffer:
+                    yield "".join(reasoning_buffer)
 
     async def analyze_image(
         self,

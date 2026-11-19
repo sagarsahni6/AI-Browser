@@ -278,8 +278,8 @@ export const useBrowserStore = create<BrowserStore>((set, get) => ({
       set(state => {
         const msgs = [...state.chatMessages];
         const last = msgs[msgs.length - 1];
-        if (last && last.id === botMsg.id && !last.content) {
-          msgs[msgs.length - 1] = { ...last, content: reply };
+        if (last && last.id === botMsg.id) {
+          msgs[msgs.length - 1] = { ...last, content: reply || last.content };
         }
         return { chatMessages: msgs };
       });

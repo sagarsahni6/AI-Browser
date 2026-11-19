@@ -29,6 +29,11 @@ class BrowserBridge:
         sys.stdout.write(msg + "\n")
         sys.stdout.flush()
 
+    def notify(self, method: str, params: Optional[dict] = None):
+        msg = json.dumps({"jsonrpc": "2.0", "method": method, "params": params or {}})
+        sys.stdout.write(msg + "\n")
+        sys.stdout.flush()
+
     async def start(self):
         self._loop = asyncio.get_running_loop()
         self._running = True

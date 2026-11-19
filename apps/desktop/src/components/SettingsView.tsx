@@ -20,7 +20,7 @@ export const SettingsView: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<'general' | 'ai' | 'privacy' | 'about'>('ai');
   const [nvidiaKey, setNvidiaKey] = useState('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');
-  const [selectedModel, setSelectedModel] = useState('minimaxai/minimax-m3.1-flash');
+  const [selectedModel, setSelectedModel] = useState('nvidia/nemotron-3.5-lightning-30b-a3b');
   const [searchEngine, setSearchEngine] = useState('duckduckgo');
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [testingConnection, setTestingConnection] = useState(false);
@@ -190,9 +190,9 @@ export const SettingsView: React.FC = () => {
                   color: 'var(--text-primary)'
                 }}
               >
-                <option value="minimaxai/minimax-m3.1-flash">minimaxai/minimax-m3.1-flash (Ultra Fast & Accurate)</option>
-                <option value="nvidia/nemotron-3.5-lightning-30b-a3b">nvidia/nemotron-3.5-lightning-30b-a3b (Reasoning & Code)</option>
+                <option value="nvidia/nemotron-3.5-lightning-30b-a3b">nvidia/nemotron-3.5-lightning-30b-a3b (Fast & Accurate - Recommended)</option>
                 <option value="nvidia/nemotron-3.5-super-vl-120b-a12b">nvidia/nemotron-3.5-super-vl-120b-a12b (Multimodal & Vision)</option>
+                <option value="minimaxai/minimax-m3.1-flash">minimaxai/minimax-m3.1-flash (Deep Reasoning)</option>
                 <option value="mistralai/mistral-large-4-1t-a52b">mistralai/mistral-large-4-1t-a52b (High Intelligence)</option>
                 <option value="gpt-4o">gpt-4o (OpenAI Fallback)</option>
               </select>

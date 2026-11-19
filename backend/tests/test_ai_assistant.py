@@ -9,7 +9,7 @@ async def test_ai_provider_routing():
     # 1. Test model router
     provider, model = ModelRouter.route_for_task(task_type="text")
     assert provider.provider_id == "nvidia_nim"
-    assert "llama" in model.lower() or "minimax" in model.lower()
+    assert "llama" in model.lower() or "nemotron" in model.lower() or "minimax" in model.lower()
 
     # Vision routing
     v_provider, v_model = ModelRouter.route_for_task(task_type="vision")

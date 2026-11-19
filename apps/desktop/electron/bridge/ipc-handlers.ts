@@ -54,6 +54,13 @@ export function setupIpcHandlers(deps: {
     broadcastToPanels(IPC_CHANNELS.DOWNLOAD_UPDATE, item);
   });
 
+  // Forward AI chat streaming chunks to all panel views
+  rpcClient.on('notification:chat:stream', (params: { chunk?: string }) => {
+    if (params?.chunk) {
+      broadcastToPanels(IPC_CHANNELS.CHAT_STREAM_CHUNK, params.chunk);
+    }
+  });
+
   // Register JSON-RPC methods callable by Python process
   rpcClient.registerMethod('browser.get_tabs', async () => {
     return tabManager.getTabs();
@@ -240,7 +247,22 @@ export function setupIpcHandlers(deps: {
   ipcMain.handle(IPC_CHANNELS.SEND_CHAT_MESSAGE, async (_event, { message, context }) => {
     if (processManager.getStatus().online) {
       try {
-        const response = await rpcClient.call('assistant.chat', { message, context });
+        const enrichedContext: Record<string, any> = { ...(context || {}) };
+        if (!enrichedContext.visibleText && tabManager.getActiveTab()) {
+          try {
+            const obs = await tabManager.inspectActivePage();
+            if (obs) {
+              enrichedContext.title = obs.title;
+              enrichedContext.url = obs.url;
+              if (obs.visibleText) {
+                enrichedContext.visibleText = obs.visibleText.slice(0, 4000);
+              }
+            }
+          } catch (e) {
+            // CDP inspect fallback
+          }
+        }
+        const response = await rpcClient.call('assistant.chat', { message, context: enrichedContext });
         return response?.reply || 'Assistant processed request.';
       } catch (err: any) {
         return `Backend communication error: ${err.message}`;
