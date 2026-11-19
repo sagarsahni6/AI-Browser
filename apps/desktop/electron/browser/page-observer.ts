@@ -1,26 +1,35 @@
 import type { WebContents } from 'electron';
 import type { PageObservation, InteractiveElement } from '@ai-browser/shared';
 import { CdpClient } from './cdp-client';
+import { AccessibilityReader, type AccessibilityNode } from './accessibility-reader';
+
+export interface ExtendedPageObservation extends PageObservation {
+  accessibilityTree?: AccessibilityNode[];
+}
 
 export class PageObserver {
   private cdp: CdpClient;
   private webContents: WebContents;
+  private axReader: AccessibilityReader;
 
   constructor(webContents: WebContents, cdp: CdpClient) {
     this.webContents = webContents;
     this.cdp = cdp;
+    this.axReader = new AccessibilityReader(cdp);
   }
 
-  public async observe(tabId: string): Promise<PageObservation> {
+  public async observe(tabId: string): Promise<ExtendedPageObservation> {
     await this.cdp.attach();
-
-    // Enable Runtime & DOM
     await this.cdp.sendCommand('Runtime.enable');
     await this.cdp.sendCommand('DOM.enable');
 
-    // Safe extraction script inside the page context
+    // Safe extraction script: ignores input[type=password] and sensitive credential fields
     const extractionScript = `
       (() => {
+        // Redact any password fields from extraction
+        const passwords = document.querySelectorAll('input[type="password"]');
+        passwords.forEach(el => el.setAttribute('data-sensitive', 'true'));
+
         const text = (document.body ? document.body.innerText : '') || '';
         const viewport = {
           width: window.innerWidth || 1280,
@@ -28,18 +37,17 @@ export class PageObserver {
         };
 
         const elements = [];
-        const selector = 'button, a, input, textarea, select, [role="button"], [role="link"]';
+        const selector = 'button, a, input:not([type="password"]), textarea, select, [role="button"], [role="link"], [role="checkbox"]';
         const nodes = Array.from(document.querySelectorAll(selector));
 
         nodes.slice(0, 100).forEach((el, index) => {
           const rect = el.getBoundingClientRect();
-          // Filter out completely hidden elements
           if (rect.width > 0 && rect.height > 0) {
             elements.push({
               id: 'el-' + index,
               tagName: el.tagName.toLowerCase(),
               role: el.getAttribute('role') || undefined,
-              label: el.getAttribute('aria-label') || el.getAttribute('placeholder') || undefined,
+              label: el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.getAttribute('title') || undefined,
               text: (el.innerText || (el instanceof HTMLInputElement ? el.value : '') || '').slice(0, 100).trim(),
               bounds: {
                 x: Math.round(rect.x),
@@ -74,13 +82,17 @@ export class PageObserver {
       interactiveElements: []
     };
 
+    // Get accessibility tree
+    const axTree = await this.axReader.getTree();
+
     return {
       tabId,
       url: val.url,
       title: val.title,
       viewport: val.viewport,
       visibleText: val.visibleText,
-      interactiveElements: val.interactiveElements
+      interactiveElements: val.interactiveElements,
+      accessibilityTree: axTree
     };
   }
 }

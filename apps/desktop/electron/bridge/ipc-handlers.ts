@@ -80,8 +80,32 @@ export function setupIpcHandlers(deps: {
     return await tabManager.inspectActivePage();
   });
 
+  rpcClient.registerMethod('browser.inspect_all_tabs', async () => {
+    return await tabManager.inspectAllTabs();
+  });
+
   rpcClient.registerMethod('browser.capture_screenshot', async () => {
     return await tabManager.captureActivePage();
+  });
+
+  rpcClient.registerMethod('browser.click', async (params: { x: number; y: number }) => {
+    return await tabManager.clickAt(params.x, params.y);
+  });
+
+  rpcClient.registerMethod('browser.type', async (params: { text: string }) => {
+    return await tabManager.typeText(params.text);
+  });
+
+  rpcClient.registerMethod('browser.fill', async (params: { x: number; y: number; text: string }) => {
+    return await tabManager.fillInput(params.x, params.y, params.text);
+  });
+
+  rpcClient.registerMethod('browser.scroll', async (params: { delta_x: number; delta_y: number }) => {
+    return await tabManager.scroll(params.delta_x, params.delta_y);
+  });
+
+  rpcClient.registerMethod('browser.press_key', async (params: { key: string }) => {
+    return await tabManager.pressKey(params.key);
   });
 
   // Renderer IPC Handlers

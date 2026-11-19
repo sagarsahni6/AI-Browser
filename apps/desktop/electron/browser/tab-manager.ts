@@ -3,6 +3,7 @@ import type { BrowserTab, PageObservation } from '@ai-browser/shared';
 import { DebuggerManager } from './debugger-manager';
 import { PageObserver } from './page-observer';
 import { ScreenshotManager } from './screenshot-manager';
+import { PageActions } from './page-actions';
 import { HistoryManager } from './history-manager';
 import { SessionManager } from './session-manager';
 import { attachContextMenu } from './context-menu';
@@ -332,6 +333,63 @@ export class TabManager {
     const cdp = this.debuggerManager.getClient(active.view.webContents);
     const observer = new PageObserver(active.view.webContents, cdp);
     return observer.observe(active.id);
+  }
+
+  public async inspectAllTabs(): Promise<PageObservation[]> {
+    const results: PageObservation[] = [];
+    for (const [id, item] of this.tabs.entries()) {
+      try {
+        if (!item.view.webContents.isDestroyed()) {
+          const cdp = this.debuggerManager.getClient(item.view.webContents);
+          const observer = new PageObserver(item.view.webContents, cdp);
+          const obs = await observer.observe(id);
+          results.push(obs);
+        }
+      } catch (err) {
+        console.warn(`Failed to inspect tab ${id}:`, err);
+      }
+    }
+    return results;
+  }
+
+  public async clickAt(x: number, y: number): Promise<boolean> {
+    const active = this.getActiveTab();
+    if (!active) throw new Error('No active tab');
+    const cdp = this.debuggerManager.getClient(active.view.webContents);
+    const actions = new PageActions(cdp);
+    return actions.click(x, y);
+  }
+
+  public async typeText(text: string): Promise<boolean> {
+    const active = this.getActiveTab();
+    if (!active) throw new Error('No active tab');
+    const cdp = this.debuggerManager.getClient(active.view.webContents);
+    const actions = new PageActions(cdp);
+    return actions.typeText(text);
+  }
+
+  public async fillInput(x: number, y: number, text: string): Promise<boolean> {
+    const active = this.getActiveTab();
+    if (!active) throw new Error('No active tab');
+    const cdp = this.debuggerManager.getClient(active.view.webContents);
+    const actions = new PageActions(cdp);
+    return actions.fillInput(x, y, text);
+  }
+
+  public async scroll(deltaX: number, deltaY: number): Promise<boolean> {
+    const active = this.getActiveTab();
+    if (!active) throw new Error('No active tab');
+    const cdp = this.debuggerManager.getClient(active.view.webContents);
+    const actions = new PageActions(cdp);
+    return actions.scrollPage(deltaX, deltaY);
+  }
+
+  public async pressKey(key: string): Promise<boolean> {
+    const active = this.getActiveTab();
+    if (!active) throw new Error('No active tab');
+    const cdp = this.debuggerManager.getClient(active.view.webContents);
+    const actions = new PageActions(cdp);
+    return actions.pressKey(key);
   }
 
   public dispose(): void {

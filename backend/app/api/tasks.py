@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
@@ -5,6 +6,7 @@ from typing import List, Optional
 from backend.app.database.engine import get_db
 from backend.app.database.repository import Repository
 from backend.app.dependencies import verify_local_token
+from backend.app.agents.orchestrator import TaskOrchestrator
 
 router = APIRouter(prefix="/agent/tasks", tags=["tasks"], dependencies=[Depends(verify_local_token)])
 
@@ -56,6 +58,10 @@ async def list_tasks(limit: int = 50, db: AsyncSession = Depends(get_db)):
 async def create_task(req: CreateTaskRequest, db: AsyncSession = Depends(get_db)):
     repo = Repository(db)
     task = await repo.create_task(title=req.title, prompt=req.prompt)
+
+    # Launch task orchestrator in background
+    asyncio.create_task(TaskOrchestrator.run_task(task.id))
+
     return TaskResponse(
         id=task.id,
         title=task.title,
@@ -104,3 +110,23 @@ async def cancel_task(task_id: str, db: AsyncSession = Depends(get_db)):
 
     await repo.update_task_status(task_id, status="cancelled", error="Cancelled by user")
     return {"status": "cancelled", "id": task_id}
+
+@router.post("/{task_id}/approve")
+async def approve_task(task_id: str, db: AsyncSession = Depends(get_db)):
+    repo = Repository(db)
+    task = await repo.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    await repo.update_task_status(task_id, status="running")
+    return {"status": "approved", "id": task_id}
+
+@router.post("/{task_id}/reject")
+async def reject_task(task_id: str, db: AsyncSession = Depends(get_db)):
+    repo = Repository(db)
+    task = await repo.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    await repo.update_task_status(task_id, status="cancelled", error="Action rejected by user")
+    return {"status": "rejected", "id": task_id}

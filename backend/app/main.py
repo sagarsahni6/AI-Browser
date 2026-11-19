@@ -15,6 +15,7 @@ from backend.app.api.browser import router as browser_router
 from backend.app.api.conversations import router as conversations_router
 from backend.app.api.tasks import router as tasks_router
 from backend.app.api.providers import router as providers_router
+from backend.app.api.search import router as search_router
 
 # Handle RPC methods invoked directly by Electron
 async def handle_assistant_chat(params: dict):
@@ -100,6 +101,7 @@ app.include_router(browser_router, prefix="/api/v1")
 app.include_router(conversations_router, prefix="/api/v1")
 app.include_router(tasks_router, prefix="/api/v1")
 app.include_router(providers_router, prefix="/api/v1")
+app.include_router(search_router, prefix="/api/v1")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", settings.PORT))
