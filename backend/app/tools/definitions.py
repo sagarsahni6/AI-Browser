@@ -232,5 +232,99 @@ BROWSER_TOOLS: List[Dict[str, Any]] = [
                 "required": ["key"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_open_tabs",
+            "description": "Retrieve the list of all currently open browser tabs.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "switch_tab",
+            "description": "Switch active focus to a specific browser tab ID.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "tab_id": {
+                        "type": "string",
+                        "description": "The target tab ID to activate."
+                    }
+                },
+                "required": ["tab_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "close_tab",
+            "description": "Close a specific browser tab ID.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "tab_id": {
+                        "type": "string",
+                        "description": "The tab ID to close."
+                    }
+                },
+                "required": ["tab_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "extract_links",
+            "description": "Extract all navigable anchor links and headlines from the active page.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "export_json",
+            "description": "Export structured research or agent data to a local JSON file.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {
+                        "type": "string",
+                        "description": "Filename (e.g. 'findings.json')."
+                    },
+                    "data": {
+                        "type": "object",
+                        "description": "The structured data object to export."
+                    }
+                },
+                "required": ["filename", "data"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "compare_tabs",
+            "description": "Inspect and compare content across multiple open tabs to synthesize insights or price differences.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question": {
+                        "type": "string",
+                        "description": "Comparison question or goal (e.g. 'Compare the product price between tabs')."
+                    }
+                },
+                "required": ["question"]
+            }
+        }
     }
 ]

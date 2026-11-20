@@ -3,6 +3,7 @@ import { ToolbarPanel } from '../panels/ToolbarPanel';
 import { SidebarPanel } from '../panels/SidebarPanel';
 import { AssistantPanel } from '../panels/AssistantPanel';
 import { FirstRunWizard } from '../components/FirstRunWizard';
+import { NewTabPage } from '../components/NewTabPage';
 import { useBrowserStore, applyTheme } from '../store/browser-store';
 
 export const App: React.FC = () => {
@@ -89,6 +90,10 @@ export const App: React.FC = () => {
 
   if (panel === 'assistant') {
     return <AssistantPanel />;
+  }
+
+  if (panel === 'newtab') {
+    return <NewTabPage />;
   }
 
   // Fallback standalone preview (e.g. running vite standalone in standard browser)

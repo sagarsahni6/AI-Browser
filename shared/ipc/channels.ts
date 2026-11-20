@@ -7,6 +7,7 @@ export const IPC_CHANNELS = {
   TABS_GET: 'tabs:get',
   TAB_RESTORE_CLOSED: 'tab:restore-closed',
   TAB_DUPLICATE: 'tab:duplicate',
+  TAB_SET_PINNED: 'tab:set-pinned',
 
   // Navigation
   NAV_NAVIGATE: 'nav:navigate',
@@ -53,7 +54,20 @@ export const IPC_CHANNELS = {
   SEND_CHAT_MESSAGE: 'chat:send-message',
   CHAT_STREAM_CHUNK: 'chat:stream-chunk',
   CHAT_ACTION_UPDATE: 'chat:action-update',
-  STOP_ASSISTANT: 'chat:stop'
+  STOP_ASSISTANT: 'chat:stop',
+
+  // Tasks & Multi-Agent Operations
+  TASK_CREATE: 'task:create',
+  TASKS_LIST: 'tasks:list',
+  TASK_GET: 'task:get',
+  TASK_CANCEL: 'task:cancel',
+  TASK_APPROVE: 'task:approve',
+  TASK_REJECT: 'task:reject',
+
+  // Research Collections
+  COLLECTIONS_LIST: 'collections:list',
+  COLLECTION_CREATE: 'collection:create',
+  COLLECTION_DELETE: 'collection:delete',
 } as const;
 
 export type IpcChannel = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS];

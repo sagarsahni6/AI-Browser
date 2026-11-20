@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import {
   Shield,
   Key,
-  Database,
   Cpu,
   CheckCircle,
   AlertCircle,
@@ -11,32 +10,141 @@ import {
   Globe,
   Sliders,
   Sun,
-  Moon
+  Moon,
+  Sparkles
 } from 'lucide-react';
 import { useBrowserStore } from '../store/browser-store';
+
+interface ProviderConfig {
+  id: string;
+  name: string;
+  keyName: string;
+  defaultModel: string;
+  models: string[];
+  requiresKey: boolean;
+  helpText: string;
+}
+
+const PROVIDERS: ProviderConfig[] = [
+  {
+    id: 'nvidia_nim',
+    name: 'NVIDIA NIM (Primary)',
+    keyName: 'NVIDIA_API_KEY',
+    defaultModel: 'nvidia/nemotron-3.5-lightning-30b-a3b',
+    models: [
+      'nvidia/nemotron-3.5-lightning-30b-a3b',
+      'nvidia/nemotron-3.5-super-vl-120b-a12b',
+      'mistralai/mistral-large-4-1t-a52b',
+      'meta/llama-3.3-70b-instruct'
+    ],
+    requiresKey: true,
+    helpText: 'High-throughput reasoning and multimodal vision powered by NVIDIA microservices.'
+  },
+  {
+    id: 'anthropic',
+    name: 'Anthropic Claude',
+    keyName: 'ANTHROPIC_API_KEY',
+    defaultModel: 'claude-3-5-sonnet-20241022',
+    models: [
+      'claude-3-5-sonnet-20241022',
+      'claude-3-5-haiku-20241022',
+      'claude-3-opus-20240229'
+    ],
+    requiresKey: true,
+    helpText: 'Anthropic Claude Messages API with deep instruction following and safety.'
+  },
+  {
+    id: 'google_gemini',
+    name: 'Google Gemini',
+    keyName: 'GOOGLE_API_KEY',
+    defaultModel: 'gemini-2.0-flash',
+    models: [
+      'gemini-2.0-flash',
+      'gemini-1.5-pro',
+      'gemini-2.0-pro-exp'
+    ],
+    requiresKey: true,
+    helpText: 'Ultra-fast multimodal Gemini with up to 1M token context.'
+  },
+  {
+    id: 'groq',
+    name: 'Groq (Ultra-Fast)',
+    keyName: 'GROQ_API_KEY',
+    defaultModel: 'llama-3.3-70b-versatile',
+    models: [
+      'llama-3.3-70b-versatile',
+      'llama-3.1-8b-instant',
+      'mixtral-8x7b-32768'
+    ],
+    requiresKey: true,
+    helpText: 'Sub-second LPU inference for instantaneous browser interactions.'
+  },
+  {
+    id: 'openai_compatible',
+    name: 'OpenAI Compatible',
+    keyName: 'OPENAI_API_KEY',
+    defaultModel: 'gpt-4o',
+    models: [
+      'gpt-4o',
+      'gpt-4o-mini',
+      'o1-preview'
+    ],
+    requiresKey: true,
+    helpText: 'Standard OpenAI-compatible completions endpoint.'
+  },
+  {
+    id: 'ollama',
+    name: 'Ollama (Local Offline)',
+    keyName: 'OLLAMA_BASE_URL',
+    defaultModel: 'llama3.2',
+    models: [
+      'llama3.2',
+      'mistral',
+      'qwen2.5',
+      'llava'
+    ],
+    requiresKey: false,
+    helpText: '100% private local inference running on localhost:11434. No API key needed.'
+  }
+];
 
 export const SettingsView: React.FC = () => {
   const { clearHistory, theme, setTheme } = useBrowserStore();
 
   const [activeTab, setActiveTab] = useState<'general' | 'ai' | 'privacy' | 'about'>('ai');
-  const [nvidiaKey, setNvidiaKey] = useState('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');
+  const [selectedProviderId, setSelectedProviderId] = useState('nvidia_nim');
+  const [apiKeys, setApiKeys] = useState<Record<string, string>>({
+    NVIDIA_API_KEY: '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',
+    ANTHROPIC_API_KEY: '',
+    GOOGLE_API_KEY: '',
+    GROQ_API_KEY: '',
+    OPENAI_API_KEY: '',
+    OLLAMA_BASE_URL: 'http://localhost:11434'
+  });
   const [selectedModel, setSelectedModel] = useState('nvidia/nemotron-3.5-lightning-30b-a3b');
   const [searchEngine, setSearchEngine] = useState('duckduckgo');
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [testingConnection, setTestingConnection] = useState(false);
 
+  const curProvider = PROVIDERS.find(p => p.id === selectedProviderId) || PROVIDERS[0];
+
   useEffect(() => {
     if (window.electronAPI?.getSecret) {
-      window.electronAPI.getSecret('NVIDIA_API_KEY').then(key => {
-        if (key) setNvidiaKey(key);
-      });
+      for (const p of PROVIDERS) {
+        window.electronAPI.getSecret(p.keyName).then(key => {
+          if (key) {
+            setApiKeys(prev => ({ ...prev, [p.keyName]: key }));
+          }
+        });
+      }
     }
   }, []);
 
-  const handleSaveNvidiaKey = async () => {
+  const handleSaveKey = async () => {
     if (window.electronAPI?.setSecret) {
-      await window.electronAPI.setSecret('NVIDIA_API_KEY', nvidiaKey);
-      setStatusMessage({ text: 'NVIDIA NIM credentials safely stored using Windows DPAPI.', type: 'success' });
+      const val = apiKeys[curProvider.keyName] || '';
+      await window.electronAPI.setSecret(curProvider.keyName, val);
+      setStatusMessage({ text: `${curProvider.name} credentials saved securely.`, type: 'success' });
       setTimeout(() => setStatusMessage(null), 4000);
     }
   };
@@ -49,18 +157,18 @@ export const SettingsView: React.FC = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          provider_id: 'nvidia_nim',
-          api_key: nvidiaKey
+          provider_id: curProvider.id,
+          api_key: apiKeys[curProvider.keyName]
         })
       });
       const data = await res.json();
       if (data.success) {
-        setStatusMessage({ text: 'Connection successful! NVIDIA NIM API verified.', type: 'success' });
+        setStatusMessage({ text: data.message || `Connected to ${curProvider.name}!`, type: 'success' });
       } else {
-        setStatusMessage({ text: `Connection failed: ${data.message}`, type: 'error' });
+        setStatusMessage({ text: `Connection test: ${data.message}`, type: 'error' });
       }
     } catch (err: any) {
-      setStatusMessage({ text: `Error contacting backend: ${err.message}`, type: 'error' });
+      setStatusMessage({ text: `Backend unreachable: ${err.message}`, type: 'error' });
     } finally {
       setTestingConnection(false);
     }
@@ -134,48 +242,113 @@ export const SettingsView: React.FC = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <div>
               <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px' }}>
-                NVIDIA NIM (Primary Provider)
+                Select AI Provider
               </div>
-              <div style={{ color: 'var(--text-secondary)', fontSize: '11px', marginBottom: '8px' }}>
-                Connect to NVIDIA's Inference Microservice for high-throughput Llama-3.3 reasoning and Llama-3.2 Vision.
-              </div>
-              <div style={{ display: 'flex', gap: '6px' }}>
-                <input
-                  type="password"
-                  placeholder="nvapi-..."
-                  value={nvidiaKey}
-                  onChange={(e) => setNvidiaKey(e.target.value)}
-                  style={{
-                    flex: 1,
-                    backgroundColor: 'var(--bg-tertiary)',
-                    borderRadius: 'var(--radius-sm)',
-                    border: '1px solid var(--border-subtle)',
-                    padding: '6px 8px',
-                    fontSize: '11px',
-                    color: 'var(--text-primary)'
-                  }}
-                />
-                <button
-                  onClick={handleSaveNvidiaKey}
-                  style={{
-                    backgroundColor: 'var(--accent-primary)',
-                    color: '#fff',
-                    padding: '6px 12px',
-                    borderRadius: 'var(--radius-sm)',
-                    fontSize: '11px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}
-                >
-                  <Save size={12} /> Save
-                </button>
+              <select
+                value={selectedProviderId}
+                onChange={(e) => {
+                  const pid = e.target.value;
+                  setSelectedProviderId(pid);
+                  const p = PROVIDERS.find(x => x.id === pid);
+                  if (p) setSelectedModel(p.defaultModel);
+                }}
+                style={{
+                  width: '100%',
+                  backgroundColor: 'var(--bg-tertiary)',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--border-subtle)',
+                  padding: '6px 8px',
+                  fontSize: '11px',
+                  color: 'var(--text-primary)',
+                  fontWeight: 500
+                }}
+              >
+                {PROVIDERS.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+              <div style={{ color: 'var(--text-secondary)', fontSize: '11px', marginTop: '4px' }}>
+                {curProvider.helpText}
               </div>
             </div>
 
+            {curProvider.requiresKey ? (
+              <div>
+                <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px' }}>
+                  {curProvider.name} API Key
+                </div>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <input
+                    type="password"
+                    placeholder="Enter API Key..."
+                    value={apiKeys[curProvider.keyName] || ''}
+                    onChange={(e) => setApiKeys({ ...apiKeys, [curProvider.keyName]: e.target.value })}
+                    style={{
+                      flex: 1,
+                      backgroundColor: 'var(--bg-tertiary)',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid var(--border-subtle)',
+                      padding: '6px 8px',
+                      fontSize: '11px',
+                      color: 'var(--text-primary)'
+                    }}
+                  />
+                  <button
+                    onClick={handleSaveKey}
+                    style={{
+                      backgroundColor: 'var(--accent-primary)',
+                      color: '#fff',
+                      padding: '6px 12px',
+                      borderRadius: 'var(--radius-sm)',
+                      fontSize: '11px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                  >
+                    <Save size={12} /> Save
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px' }}>
+                  Ollama Base Endpoint
+                </div>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <input
+                    type="text"
+                    value={apiKeys.OLLAMA_BASE_URL || 'http://localhost:11434'}
+                    onChange={(e) => setApiKeys({ ...apiKeys, OLLAMA_BASE_URL: e.target.value })}
+                    style={{
+                      flex: 1,
+                      backgroundColor: 'var(--bg-tertiary)',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid var(--border-subtle)',
+                      padding: '6px 8px',
+                      fontSize: '11px',
+                      color: 'var(--text-primary)'
+                    }}
+                  />
+                  <button
+                    onClick={handleSaveKey}
+                    style={{
+                      backgroundColor: 'var(--accent-primary)',
+                      color: '#fff',
+                      padding: '6px 12px',
+                      borderRadius: 'var(--radius-sm)',
+                      fontSize: '11px'
+                    }}
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div>
               <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px' }}>
-                Default Model
+                Model Selection
               </div>
               <select
                 value={selectedModel}
@@ -190,11 +363,9 @@ export const SettingsView: React.FC = () => {
                   color: 'var(--text-primary)'
                 }}
               >
-                <option value="nvidia/nemotron-3.5-lightning-30b-a3b">nvidia/nemotron-3.5-lightning-30b-a3b (Fast & Accurate - Recommended)</option>
-                <option value="nvidia/nemotron-3.5-super-vl-120b-a12b">nvidia/nemotron-3.5-super-vl-120b-a12b (Multimodal & Vision)</option>
-                <option value="minimaxai/minimax-m3.1-flash">minimaxai/minimax-m3.1-flash (Deep Reasoning)</option>
-                <option value="mistralai/mistral-large-4-1t-a52b">mistralai/mistral-large-4-1t-a52b (High Intelligence)</option>
-                <option value="gpt-4o">gpt-4o (OpenAI Fallback)</option>
+                {curProvider.models.map(m => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
               </select>
             </div>
 
@@ -211,7 +382,7 @@ export const SettingsView: React.FC = () => {
                 alignSelf: 'flex-start'
               }}
             >
-              {testingConnection ? 'Testing...' : 'Test Provider Connection'}
+              {testingConnection ? 'Testing...' : `Test ${curProvider.name} Connection`}
             </button>
           </div>
         )}
@@ -339,10 +510,10 @@ export const SettingsView: React.FC = () => {
               AI Browser for Windows
             </div>
             <div style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>
-              Version 0.1.0 (Production Release Architecture)
+              Version 0.2.0 (Fully Agentic Multi-Model Release)
             </div>
             <div style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>
-              Built with Electron BaseWindow, Chromium, FastAPI, and NVIDIA NIM.
+              Built with Electron BaseWindow, Chromium, FastAPI, and Universal AI Providers (NVIDIA, Claude, Gemini, Groq, Ollama).
             </div>
           </div>
         )}

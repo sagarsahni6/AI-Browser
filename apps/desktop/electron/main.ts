@@ -75,6 +75,11 @@ async function createWindow() {
       if (!assistantView.webContents.isDestroyed()) {
         assistantView.webContents.send('chat:incoming-prompt', text);
       }
+    },
+    onOpenCommandPalette: () => {
+      if (!toolbarView.webContents.isDestroyed()) {
+        toolbarView.webContents.send('command-palette:toggle');
+      }
     }
   });
 

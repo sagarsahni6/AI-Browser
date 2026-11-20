@@ -9,6 +9,7 @@ import { SessionManager } from './session-manager';
 import { attachContextMenu } from './context-menu';
 import { registerShortcuts } from './keyboard-shortcuts';
 import { generateErrorPageHtml } from './error-page';
+import { getPanelUrl } from '../panels/panel-factory';
 
 export interface TabItem {
   id: string;
@@ -31,6 +32,7 @@ export class TabManager {
   private onToggleAssistant?: () => void;
   private onBookmarkPage?: (url: string, title: string) => void;
   private onAskAI?: (text: string) => void;
+  private onOpenCommandPalette?: () => void;
 
   constructor(
     baseWindow: BaseWindow,
@@ -50,12 +52,14 @@ export class TabManager {
     onToggleAssistant?: () => void;
     onBookmarkPage?: (url: string, title: string) => void;
     onAskAI?: (text: string) => void;
+    onOpenCommandPalette?: () => void;
   }) {
     if (cb.onActiveTabChanged) this.onActiveTabChanged = cb.onActiveTabChanged;
     if (cb.onToggleSidebar) this.onToggleSidebar = cb.onToggleSidebar;
     if (cb.onToggleAssistant) this.onToggleAssistant = cb.onToggleAssistant;
     if (cb.onBookmarkPage) this.onBookmarkPage = cb.onBookmarkPage;
     if (cb.onAskAI) this.onAskAI = cb.onAskAI;
+    if (cb.onOpenCommandPalette) this.onOpenCommandPalette = cb.onOpenCommandPalette;
   }
 
   public setOnActiveTabChanged(callback: (tabView: WebContentsView | null) => void) {
@@ -101,8 +105,11 @@ export class TabManager {
     return wc.canGoForward ? wc.canGoForward() : false;
   }
 
-  public async createTab(initialUrl = 'https://example.com', isPrivate = false): Promise<string> {
+  public async createTab(initialUrl = '', isPrivate = false): Promise<string> {
     const id = `tab-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+    const effectiveUrl = (!initialUrl || initialUrl === 'ai://newtab' || initialUrl === 'https://example.com')
+      ? getPanelUrl('newtab')
+      : initialUrl;
 
     const partition = isPrivate ? `partition:incognito-${Date.now()}` : 'persist:default';
 
@@ -210,10 +217,11 @@ export class TabManager {
       onPrevTab: () => this.cycleTab(-1),
       onToggleSidebar: () => this.onToggleSidebar?.(),
       onToggleAssistant: () => this.onToggleAssistant?.(),
+      onOpenCommandPalette: () => this.onOpenCommandPalette?.(),
     });
 
     this.baseWindow.contentView.addChildView(view);
-    view.webContents.loadURL(initialUrl);
+    view.webContents.loadURL(effectiveUrl);
     this.switchTab(id);
 
     return id;
@@ -282,6 +290,24 @@ export class TabManager {
       return closed.url;
     }
     return null;
+  }
+
+  public setTabPinned(tabId: string, isPinned: boolean): void {
+    const item = this.tabs.get(tabId);
+    if (item) {
+      item.info.isPinned = isPinned;
+      this.notify();
+    }
+  }
+
+  public closeOtherTabs(keepTabId: string): void {
+    const toClose = Array.from(this.tabs.keys()).filter(id => id !== keepTabId);
+    for (const id of toClose) {
+      const item = this.tabs.get(id);
+      if (item && !item.info.isPinned) {
+        this.closeTab(id);
+      }
+    }
   }
 
   public duplicateTab(tabId: string): void {

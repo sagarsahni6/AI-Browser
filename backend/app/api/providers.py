@@ -4,6 +4,7 @@ from typing import List, Optional
 import httpx
 from backend.app.config import settings
 from backend.app.dependencies import verify_local_token
+from backend.app.ai.registry import provider_registry
 
 router = APIRouter(prefix="/providers", tags=["providers"], dependencies=[Depends(verify_local_token)])
 
@@ -43,54 +44,81 @@ async def list_providers():
             configured=bool(settings.OPENAI_API_KEY),
             base_url=settings.OPENAI_BASE_URL,
             default_model=settings.OPENAI_MODEL
+        ),
+        ProviderInfo(
+            id="anthropic",
+            name="Anthropic Claude",
+            is_primary=False,
+            configured=bool(getattr(settings, "ANTHROPIC_API_KEY", None)),
+            base_url="https://api.anthropic.com/v1",
+            default_model=getattr(settings, "ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
+        ),
+        ProviderInfo(
+            id="google_gemini",
+            name="Google Gemini",
+            is_primary=False,
+            configured=bool(getattr(settings, "GOOGLE_API_KEY", None)),
+            base_url="https://generativelanguage.googleapis.com/v1beta",
+            default_model=getattr(settings, "GOOGLE_MODEL", "gemini-2.0-flash")
+        ),
+        ProviderInfo(
+            id="groq",
+            name="Groq (Ultra-Fast)",
+            is_primary=False,
+            configured=bool(getattr(settings, "GROQ_API_KEY", None)),
+            base_url="https://api.groq.com/openai/v1",
+            default_model=getattr(settings, "GROQ_MODEL", "llama-3.3-70b-versatile")
+        ),
+        ProviderInfo(
+            id="ollama",
+            name="Ollama (Local)",
+            is_primary=False,
+            configured=True, # Local doesn't need key
+            base_url=getattr(settings, "OLLAMA_BASE_URL", "http://localhost:11434"),
+            default_model=getattr(settings, "OLLAMA_MODEL", "llama3.2")
         )
     ]
 
 @router.post("/test", response_model=TestProviderResponse)
 async def test_provider(req: TestProviderRequest):
-    api_key = req.api_key or (settings.NVIDIA_API_KEY if req.provider_id == "nvidia_nim" else settings.OPENAI_API_KEY)
-    base_url = req.base_url or (settings.NVIDIA_BASE_URL if req.provider_id == "nvidia_nim" else settings.OPENAI_BASE_URL)
-
-    if not api_key:
-        return TestProviderResponse(
-            success=False,
-            message=f"No API key provided for {req.provider_id}",
-            available_models=[]
-        )
+    provider = provider_registry.get(req.provider_id)
+    if not provider:
+        return TestProviderResponse(success=False, message="Unknown provider", available_models=[])
 
     try:
-        async with httpx.AsyncClient(timeout=6.0) as client:
-            resp = await client.get(
-                f"{base_url}/models",
-                headers={"Authorization": f"Bearer {api_key}"}
+        is_ok = await provider.check_connection()
+        models = await provider.list_models()
+        if is_ok:
+            return TestProviderResponse(
+                success=True,
+                message=f"Connected to {provider.name} successfully!",
+                available_models=models
             )
-            if resp.status_code == 200:
-                data = resp.json()
-                models = [m.get("id") for m in data.get("data", []) if m.get("id")]
-                return TestProviderResponse(
-                    success=True,
-                    message="Connection successful!",
-                    available_models=models[:10]
-                )
-            else:
-                return TestProviderResponse(
-                    success=False,
-                    message=f"HTTP {resp.status_code}: {resp.text[:200]}",
-                    available_models=[]
-                )
+        else:
+            return TestProviderResponse(
+                success=False,
+                message=f"Could not connect to {provider.name}. Check your API key or endpoint.",
+                available_models=models
+            )
     except Exception as e:
         return TestProviderResponse(
             success=False,
-            message=f"Connection error: {str(e)}",
+            message=f"Connection test error: {str(e)}",
             available_models=[]
         )
 
 @router.get("/models", response_model=List[str])
-async def list_available_models():
-    return [
-        "meta/llama-3.3-70b-instruct",
-        "meta/llama-3.2-90b-vision-instruct",
-        "meta/llama-3.1-8b-instruct",
-        "gpt-4o",
-        "gpt-4o-mini"
-    ]
+async def list_available_models(provider_id: Optional[str] = None):
+    provider = provider_registry.get(provider_id)
+    try:
+        return await provider.list_models()
+    except Exception:
+        return [
+            "nvidia/nemotron-3.5-lightning-30b-a3b",
+            "meta/llama-3.3-70b-instruct",
+            "gpt-4o",
+            "claude-3-5-sonnet-20241022",
+            "gemini-2.0-flash",
+            "llama-3.3-70b-versatile",
+            "llama3.2"
+        ]

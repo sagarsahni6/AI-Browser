@@ -64,4 +64,34 @@ describe('useBrowserStore', () => {
     expect(useBrowserStore.getState().theme).toBe('light');
     expect(document.documentElement.getAttribute('data-theme')).toBe('light');
   });
+
+  it('manages pinned tabs correctly', () => {
+    const tabs = [
+      { id: 'tab-1', url: 'https://example.com', title: 'Example', isLoading: false, canGoBack: false, canGoForward: false, isPinned: false },
+      { id: 'tab-2', url: 'https://tradingview.com', title: 'TradingView', isLoading: false, canGoBack: false, canGoForward: false, isPinned: true }
+    ];
+
+    useBrowserStore.getState().setTabs(tabs, 'tab-2');
+    const state = useBrowserStore.getState();
+    expect(state.tabs.find(t => t.id === 'tab-2')?.isPinned).toBe(true);
+    expect(state.tabs.find(t => t.id === 'tab-1')?.isPinned).toBe(false);
+  });
+
+  it('manages activeAction and approval status state transitions', () => {
+    expect(useBrowserStore.getState().activeAction).toBeNull();
+
+    useBrowserStore.getState().setActiveAction({
+      action: 'fill_input',
+      parameters: { x: 100, y: 200, text: 'secret' },
+      status: 'approval_required',
+      result: 'Sensitive credential input detected'
+    });
+
+    const state = useBrowserStore.getState();
+    expect(state.activeAction?.status).toBe('approval_required');
+    expect(state.activeAction?.action).toBe('fill_input');
+
+    useBrowserStore.getState().setActiveAction(null);
+    expect(useBrowserStore.getState().activeAction).toBeNull();
+  });
 });

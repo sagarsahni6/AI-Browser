@@ -204,6 +204,113 @@ async def handle_assistant_chat(params: dict):
 
 bridge.register_method("assistant.chat", handle_assistant_chat)
 
+# Task RPC handlers
+async def handle_tasks_create(params: dict):
+    title = params.get("title", "Autonomous Task")
+    prompt = params.get("prompt", "")
+    async with AsyncSessionLocal() as session:
+        repo = Repository(session)
+        task = await repo.create_task(title=title, prompt=prompt)
+        task_id = task.id
+    from backend.app.agents.supervisor import SupervisorAgent
+    asyncio.create_task(SupervisorAgent.run_task(task_id))
+    return {"id": task_id, "title": title, "prompt": prompt, "status": "running"}
+
+async def handle_tasks_list(params: dict):
+    limit = params.get("limit", 20)
+    async with AsyncSessionLocal() as session:
+        repo = Repository(session)
+        tasks = await repo.get_tasks(limit=limit)
+        return [
+            {"id": t.id, "title": t.title, "prompt": t.prompt, "status": t.status, "result": t.result, "error": t.error, "created_at": t.created_at}
+            for t in tasks
+        ]
+
+async def handle_tasks_get(params: dict):
+    task_id = params.get("task_id")
+    async with AsyncSessionLocal() as session:
+        repo = Repository(session)
+        task = await repo.get_task(task_id)
+        if not task:
+            return {"error": "Task not found"}
+        steps = await repo.get_task_steps(task_id)
+        return {
+            "id": task.id,
+            "title": task.title,
+            "prompt": task.prompt,
+            "status": task.status,
+            "result": task.result,
+            "error": task.error,
+            "steps": [
+                {"id": s.id, "step_number": s.step_number, "description": s.description, "tool_name": s.tool_name, "status": s.status, "result_json": s.result_json}
+                for s in steps
+            ]
+        }
+
+async def handle_tasks_cancel(params: dict):
+    task_id = params.get("task_id")
+    async with AsyncSessionLocal() as session:
+        repo = Repository(session)
+        await repo.update_task_status(task_id, status="cancelled", error="Cancelled by user")
+        return {"status": "cancelled", "id": task_id}
+
+async def handle_tasks_approve(params: dict):
+    task_id = params.get("task_id")
+    decision = params.get("decision", True)
+    async with AsyncSessionLocal() as session:
+        repo = Repository(session)
+        if decision:
+            await repo.update_task_status(task_id, status="running")
+            # In a full flow this resumes the pending agent task or marks step approved
+            return {"status": "approved", "id": task_id}
+        else:
+            await repo.update_task_status(task_id, status="cancelled", error="Action rejected by user")
+            return {"status": "rejected", "id": task_id}
+
+async def handle_tasks_reject(params: dict):
+    task_id = params.get("task_id")
+    reason = params.get("reason", "Action rejected by user")
+    async with AsyncSessionLocal() as session:
+        repo = Repository(session)
+        await repo.update_task_status(task_id, status="cancelled", error=reason)
+        return {"status": "rejected", "id": task_id, "reason": reason}
+
+bridge.register_method("tasks.create", handle_tasks_create)
+bridge.register_method("tasks.list", handle_tasks_list)
+bridge.register_method("tasks.get", handle_tasks_get)
+bridge.register_method("tasks.cancel", handle_tasks_cancel)
+bridge.register_method("tasks.approve", handle_tasks_approve)
+bridge.register_method("tasks.reject", handle_tasks_reject)
+
+# Collections RPC handlers
+async def handle_collections_list(params: dict):
+    async with AsyncSessionLocal() as session:
+        repo = Repository(session)
+        cols = await repo.get_collections()
+        return [
+            {"id": c.id, "name": c.name, "description": c.description, "created_at": c.created_at}
+            for c in cols
+        ]
+
+async def handle_collections_create(params: dict):
+    name = params.get("name", "New Research Collection")
+    desc = params.get("description", "")
+    async with AsyncSessionLocal() as session:
+        repo = Repository(session)
+        col = await repo.create_collection(name=name, description=desc)
+        return {"id": col.id, "name": col.name, "description": col.description, "created_at": col.created_at}
+
+async def handle_collections_delete(params: dict):
+    col_id = params.get("id")
+    async with AsyncSessionLocal() as session:
+        repo = Repository(session)
+        await repo.delete_collection(col_id)
+        return {"status": "deleted", "id": col_id}
+
+bridge.register_method("collections.list", handle_collections_list)
+bridge.register_method("collections.create", handle_collections_create)
+bridge.register_method("collections.delete", handle_collections_delete)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # 1. Initialize SQLite database schema

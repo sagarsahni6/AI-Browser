@@ -22,6 +22,9 @@ const electronAPI = {
   duplicateTab: (tabId: string): Promise<void> => {
     return ipcRenderer.invoke(IPC_CHANNELS.TAB_DUPLICATE, tabId);
   },
+  setTabPinned: (tabId: string, isPinned: boolean): Promise<void> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.TAB_SET_PINNED, tabId, isPinned);
+  },
   onTabsUpdated: (callback: (tabs: BrowserTab[], activeTabId: string) => void) => {
     const handler = (_event: unknown, data: { tabs: BrowserTab[]; activeTabId: string }) => {
       callback(data.tabs, data.activeTabId);
@@ -155,6 +158,46 @@ const electronAPI = {
     ipcRenderer.on(IPC_CHANNELS.CHAT_ACTION_UPDATE, handler);
     return () => {
       ipcRenderer.removeListener(IPC_CHANNELS.CHAT_ACTION_UPDATE, handler);
+    };
+  },
+
+  // Multi-Agent Task Operations
+  createTask: (title: string, prompt: string): Promise<any> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.TASK_CREATE, { title, prompt });
+  },
+  listTasks: (): Promise<any[]> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.TASKS_LIST);
+  },
+  getTask: (taskId: string): Promise<any> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.TASK_GET, taskId);
+  },
+  cancelTask: (taskId: string): Promise<any> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.TASK_CANCEL, taskId);
+  },
+  approveTask: (taskId: string, decision: boolean = true): Promise<any> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.TASK_APPROVE, taskId, decision);
+  },
+  rejectTask: (taskId: string, reason?: string): Promise<any> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.TASK_REJECT, taskId, reason);
+  },
+
+  // Research Collections
+  listCollections: (): Promise<any[]> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.COLLECTIONS_LIST);
+  },
+  createCollection: (name: string, description?: string): Promise<any> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.COLLECTION_CREATE, { name, description });
+  },
+  deleteCollection: (id: string): Promise<boolean> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.COLLECTION_DELETE, id);
+  },
+
+  // Command Palette
+  onToggleCommandPalette: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('command-palette:toggle', handler);
+    return () => {
+      ipcRenderer.removeListener('command-palette:toggle', handler);
     };
   }
 };

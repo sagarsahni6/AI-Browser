@@ -1,10 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import {
-  Compass,
   History,
   Bookmark,
   Download,
-  BookOpen,
   FolderGit2,
   ListTodo,
   Settings,
@@ -17,6 +15,11 @@ import {
 } from 'lucide-react';
 import { useBrowserStore } from '../store/browser-store';
 import { SettingsView } from '../components/SettingsView';
+import { TaskPanel } from '../components/TaskPanel';
+import { CollectionsPanel } from '../components/CollectionsPanel';
+import styles from './SidebarPanel.module.css';
+
+const cx = (...classes: (string | false | undefined | null)[]) => classes.filter(Boolean).join(' ');
 
 export const SidebarPanel: React.FC = () => {
   const {
@@ -26,7 +29,6 @@ export const SidebarPanel: React.FC = () => {
     bookmarks,
     downloads,
     createTab,
-    navigate,
     refreshHistory,
     searchHistory,
     clearHistory,
@@ -64,45 +66,19 @@ export const SidebarPanel: React.FC = () => {
   };
 
   return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      width: '100%',
-      height: '100%',
-      backgroundColor: 'var(--bg-secondary)',
-      borderRight: '1px solid var(--border-subtle)',
-      padding: '8px'
-    }}>
+    <div className={styles.sidebar}>
       {/* Top Branding Header */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-        padding: '4px 6px 10px 6px',
-        borderBottom: '1px solid var(--border-subtle)',
-        marginBottom: '8px'
-      }}>
-        <div style={{
-          width: '24px',
-          height: '24px',
-          borderRadius: 'var(--radius-sm)',
-          backgroundColor: 'var(--accent-primary)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: 'white',
-          fontWeight: 'bold',
-          fontSize: '12px'
-        }}>
+      <div className={styles.brand}>
+        <div className={styles.brandLogo}>
           AI
         </div>
-        <span style={{ fontWeight: 600, fontSize: '13px', letterSpacing: '-0.2px' }}>
+        <span className={styles.brandText}>
           AI Browser
         </span>
       </div>
 
       {/* Navigation tabs strip */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginBottom: '8px' }}>
+      <div className={styles.navStrip}>
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = sidebarActiveTab === item.id;
@@ -110,18 +86,7 @@ export const SidebarPanel: React.FC = () => {
             <button
               key={item.id}
               onClick={() => setSidebarActiveTab(item.id)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '6px 8px',
-                borderRadius: 'var(--radius-sm)',
-                backgroundColor: isActive ? 'var(--bg-tertiary)' : 'transparent',
-                color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
-                fontSize: '11.5px',
-                width: '100%',
-                justifyContent: 'flex-start'
-              }}
+              className={cx(styles.navBtn, isActive && styles.navBtnActive)}
             >
               <Icon size={14} style={{ color: isActive ? 'var(--accent-primary)' : undefined }} />
               <span>{item.label}</span>
@@ -131,19 +96,11 @@ export const SidebarPanel: React.FC = () => {
       </div>
 
       {/* Main Content Area based on sidebarActiveTab */}
-      <div style={{
-        flex: 1,
-        overflowY: 'auto',
-        borderTop: '1px solid var(--border-subtle)',
-        paddingTop: '8px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '8px'
-      }}>
+      <div className={styles.contentArea}>
         {/* DISCOVER TAB */}
         {sidebarActiveTab === 'discover' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>
+            <div className={styles.sectionHeader}>
               Quick Launch
             </div>
             {[
@@ -156,12 +113,8 @@ export const SidebarPanel: React.FC = () => {
               <div
                 key={idx}
                 onClick={() => handleOpenUrl(link.url)}
+                className={styles.cardItem}
                 style={{
-                  padding: '6px 8px',
-                  borderRadius: 'var(--radius-sm)',
-                  backgroundColor: 'var(--bg-tertiary)',
-                  fontSize: '11.5px',
-                  cursor: 'pointer',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center'
@@ -177,10 +130,8 @@ export const SidebarPanel: React.FC = () => {
         {/* HISTORY TAB */}
         {sidebarActiveTab === 'history' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>
-                Browsing History
-              </span>
+            <div className={styles.sectionHeader}>
+              <span>Browsing History</span>
               {history.length > 0 && (
                 <button
                   onClick={clearHistory}
@@ -193,27 +144,20 @@ export const SidebarPanel: React.FC = () => {
             </div>
 
             {/* Search Box */}
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              backgroundColor: 'var(--bg-tertiary)',
-              borderRadius: 'var(--radius-sm)',
-              padding: '4px 6px',
-              gap: '6px'
-            }}>
+            <div className={styles.searchBox}>
               <Search size={12} style={{ color: 'var(--text-muted)' }} />
               <input
                 type="text"
                 placeholder="Search history..."
                 value={historySearchQuery}
                 onChange={(e) => handleHistorySearchChange(e.target.value)}
-                style={{ fontSize: '11px', width: '100%', color: 'var(--text-primary)' }}
+                className={styles.searchInput}
               />
             </div>
 
             {/* History List */}
             {history.length === 0 ? (
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', padding: '16px 0' }}>
+              <div className={styles.emptyState}>
                 No history entries found.
               </div>
             ) : (
@@ -221,21 +165,13 @@ export const SidebarPanel: React.FC = () => {
                 <div
                   key={item.id}
                   onClick={() => handleOpenUrl(item.url)}
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    padding: '6px 8px',
-                    borderRadius: 'var(--radius-sm)',
-                    backgroundColor: 'var(--bg-tertiary)',
-                    cursor: 'pointer',
-                    fontSize: '11.5px',
-                    gap: '2px'
-                  }}
+                  className={styles.cardItem}
+                  style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}
                 >
-                  <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <span className="truncate" style={{ fontWeight: 500 }}>
                     {item.title}
                   </span>
-                  <span style={{ fontSize: '10px', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <span className="truncate" style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
                     {item.url}
                   </span>
                 </div>
@@ -247,26 +183,23 @@ export const SidebarPanel: React.FC = () => {
         {/* BOOKMARKS TAB */}
         {sidebarActiveTab === 'bookmarks' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>
+            <div className={styles.sectionHeader}>
               Saved Bookmarks ({bookmarks.length})
-            </span>
+            </div>
 
             {bookmarks.length === 0 ? (
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', padding: '16px 0' }}>
+              <div className={styles.emptyState}>
                 No bookmarks yet. Click the star in the toolbar to save pages.
               </div>
             ) : (
               bookmarks.map((bm) => (
                 <div
                   key={bm.id}
+                  className={styles.cardItem}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    padding: '6px 8px',
-                    borderRadius: 'var(--radius-sm)',
-                    backgroundColor: 'var(--bg-tertiary)',
-                    fontSize: '11.5px',
                     gap: '6px'
                   }}
                 >
@@ -274,10 +207,10 @@ export const SidebarPanel: React.FC = () => {
                     onClick={() => handleOpenUrl(bm.url)}
                     style={{ flex: 1, overflow: 'hidden', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '2px' }}
                   >
-                    <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <span className="truncate" style={{ fontWeight: 500 }}>
                       {bm.title}
                     </span>
-                    <span style={{ fontSize: '10px', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <span className="truncate" style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
                       {bm.url}
                     </span>
                   </div>
@@ -297,30 +230,22 @@ export const SidebarPanel: React.FC = () => {
         {/* DOWNLOADS TAB */}
         {sidebarActiveTab === 'downloads' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>
+            <div className={styles.sectionHeader}>
               Downloads
-            </span>
+            </div>
 
             {downloads.length === 0 ? (
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', padding: '16px 0' }}>
+              <div className={styles.emptyState}>
                 No active or completed downloads.
               </div>
             ) : (
               downloads.map((dl) => (
                 <div
                   key={dl.id}
-                  style={{
-                    padding: '8px',
-                    borderRadius: 'var(--radius-sm)',
-                    backgroundColor: 'var(--bg-tertiary)',
-                    fontSize: '11.5px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '4px'
-                  }}
+                  className={styles.downloadCard}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <span className="truncate" style={{ fontWeight: 600 }}>
                       {dl.filename}
                     </span>
                     <span style={{
@@ -381,31 +306,22 @@ export const SidebarPanel: React.FC = () => {
           <SettingsView />
         )}
 
-        {/* COLLECTIONS & TASKS PLACEHOLDER */}
-        {(sidebarActiveTab === 'collections' || sidebarActiveTab === 'tasks') && (
-          <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', textAlign: 'center', padding: '24px 8px' }}>
-            {sidebarActiveTab === 'collections'
-              ? 'Saved Research Collections will appear here once saved from the AI Assistant.'
-              : 'Autonomous Agent Tasks and execution plans will appear here.'}
-          </div>
+        {/* AGENT TASKS TAB */}
+        {sidebarActiveTab === 'tasks' && (
+          <TaskPanel />
+        )}
+
+        {/* COLLECTIONS TAB */}
+        {sidebarActiveTab === 'collections' && (
+          <CollectionsPanel />
         )}
       </div>
 
       {/* Footer Settings Button */}
-      <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '6px' }}>
+      <div className={styles.footer}>
         <button
           onClick={() => setSidebarActiveTab('settings')}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '6px 8px',
-            borderRadius: 'var(--radius-sm)',
-            color: 'var(--text-secondary)',
-            fontSize: '11.5px',
-            width: '100%',
-            justifyContent: 'flex-start'
-          }}
+          className={styles.navBtn}
         >
           <Settings size={14} />
           <span>Settings</span>

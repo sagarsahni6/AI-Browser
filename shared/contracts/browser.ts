@@ -9,6 +9,7 @@ export interface BrowserTab {
   isAudible?: boolean;
   isMuted?: boolean;
   isPrivate?: boolean;
+  isPinned?: boolean;
 }
 
 export interface InteractiveElement {

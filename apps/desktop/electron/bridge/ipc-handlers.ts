@@ -81,13 +81,15 @@ export function setupIpcHandlers(deps: {
     return await tabManager.createTab(params?.url, params?.is_private);
   });
 
-  rpcClient.registerMethod('browser.switch_tab', async (params: { tab_id: string }) => {
-    tabManager.switchTab(params.tab_id);
+  rpcClient.registerMethod('browser.switch_tab', async (params: { tab_id?: string; tabId?: string }) => {
+    const tid = params.tab_id || params.tabId;
+    if (tid) tabManager.switchTab(tid);
     return true;
   });
 
-  rpcClient.registerMethod('browser.close_tab', async (params: { tab_id: string }) => {
-    tabManager.closeTab(params.tab_id);
+  rpcClient.registerMethod('browser.close_tab', async (params: { tab_id?: string; tabId?: string }) => {
+    const tid = params.tab_id || params.tabId;
+    if (tid) tabManager.closeTab(tid);
     return true;
   });
 
@@ -163,6 +165,10 @@ export function setupIpcHandlers(deps: {
 
   ipcMain.handle(IPC_CHANNELS.TAB_DUPLICATE, async (_event, tabId: string) => {
     tabManager.duplicateTab(tabId);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.TAB_SET_PINNED, async (_event, tabId: string, isPinned: boolean) => {
+    tabManager.setTabPinned(tabId, isPinned);
   });
 
   ipcMain.handle(IPC_CHANNELS.NAV_NAVIGATE, async (_event, url: string) => {
@@ -300,5 +306,70 @@ export function setupIpcHandlers(deps: {
     } else {
       return `Backend is offline. Running in standalone local browser mode.`;
     }
+  });
+
+  // Task & Multi-Agent Operations
+  ipcMain.handle(IPC_CHANNELS.TASK_CREATE, async (_event, { title, prompt }: { title: string; prompt: string }) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('tasks.create', { title, prompt });
+    }
+    return { error: 'Backend offline' };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.TASKS_LIST, async () => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('tasks.list', {});
+    }
+    return [];
+  });
+
+  ipcMain.handle(IPC_CHANNELS.TASK_GET, async (_event, taskId: string) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('tasks.get', { task_id: taskId });
+    }
+    return null;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.TASK_CANCEL, async (_event, taskId: string) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('tasks.cancel', { task_id: taskId });
+    }
+    return false;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.TASK_APPROVE, async (_event, taskId: string, decision: boolean = true) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('tasks.approve', { task_id: taskId, decision });
+    }
+    return false;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.TASK_REJECT, async (_event, taskId: string, reason?: string) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('tasks.reject', { task_id: taskId, reason });
+    }
+    return false;
+  });
+
+  // Research Collections
+  ipcMain.handle(IPC_CHANNELS.COLLECTIONS_LIST, async () => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('collections.list', {});
+    }
+    return [];
+  });
+
+  ipcMain.handle(IPC_CHANNELS.COLLECTION_CREATE, async (_event, { name, description }: { name: string; description?: string }) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('collections.create', { name, description });
+    }
+    return null;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.COLLECTION_DELETE, async (_event, id: string) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('collections.delete', { id });
+    }
+    return false;
   });
 }

@@ -137,6 +137,52 @@ class ToolExecutor:
                     "model": v_model
                 }
 
+            elif tool_name == "get_open_tabs":
+                tabs = await bridge.call("browser.get_tabs", {})
+                return {"status": "success", "tabs": tabs}
+
+            elif tool_name == "switch_tab":
+                tab_id = params.get("tab_id", "")
+                await bridge.call("browser.switch_tab", {"tabId": tab_id})
+                return {"status": "success", "switched_to": tab_id}
+
+            elif tool_name == "close_tab":
+                tab_id = params.get("tab_id", "")
+                await bridge.call("browser.close_tab", {"tabId": tab_id})
+                return {"status": "success", "closed_tab": tab_id}
+
+            elif tool_name == "extract_links":
+                link_script = """
+                (() => {
+                    return Array.from(document.querySelectorAll('a[href]'))
+                        .map(a => ({ text: a.innerText.trim(), href: a.href }))
+                        .filter(a => a.text && (a.href.startsWith('http://') || a.href.startsWith('https://')))
+                        .slice(0, 30);
+                })()
+                """
+                links = await bridge.call("browser.evaluate_js", {"script": link_script})
+                return {"status": "success", "links": links}
+
+            elif tool_name == "export_json":
+                filename = params.get("filename", "agent_export.json")
+                data_obj = params.get("data", {})
+                out_dir = os.path.join(os.getcwd(), "data")
+                os.makedirs(out_dir, exist_ok=True)
+                filepath = os.path.join(out_dir, filename)
+                import json as py_json
+                with open(filepath, "w", encoding="utf-8") as f:
+                    py_json.dump(data_obj, f, indent=2, ensure_ascii=False)
+                return {"status": "success", "exported_file": filepath}
+
+            elif tool_name == "compare_tabs":
+                question = params.get("question", "Compare the content across open tabs.")
+                tabs_obs = await bridge.call("browser.inspect_all_tabs", {})
+                from backend.app.ai.router import ModelRouter
+                p, m = ModelRouter.route_for_task(task_type="reasoning")
+                prompt = f"Goal: {question}\n\nTabs Content:\n{tabs_obs}\n\nProvide a structured comparison:"
+                res = await p.chat_completion(messages=[{"role": "user", "content": prompt}], model=m)
+                return {"status": "success", "comparison": res.content}
+
             else:
                 return {"status": "error", "message": f"Unknown tool: {tool_name}"}
 

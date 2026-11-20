@@ -15,14 +15,33 @@ class ModelRouter:
         if preferred_model:
             return provider, preferred_model
 
-        if task_type in ("vision", "chart", "canvas"):
-            model = settings.NVIDIA_VISION_MODEL if provider.provider_id == "nvidia_nim" else "gpt-4o"
-        elif task_type in ("reasoning", "finance", "synthesis"):
-            model = settings.NVIDIA_REASONING_MODEL if provider.provider_id == "nvidia_nim" else settings.OPENAI_MODEL
-        elif task_type in ("tools", "navigation", "research"):
-            model = settings.NVIDIA_MODEL if provider.provider_id == "nvidia_nim" else settings.OPENAI_MODEL
+        pid = provider.provider_id
+
+        if pid == "nvidia_nim":
+            if task_type in ("vision", "chart", "canvas"):
+                model = settings.NVIDIA_VISION_MODEL
+            elif task_type in ("reasoning", "finance", "synthesis"):
+                model = settings.NVIDIA_REASONING_MODEL
+            else:
+                model = settings.NVIDIA_MODEL
+
+        elif pid == "anthropic":
+            model = getattr(settings, "ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
+
+        elif pid == "google_gemini":
+            model = getattr(settings, "GOOGLE_MODEL", "gemini-2.0-flash")
+
+        elif pid == "groq":
+            model = getattr(settings, "GROQ_MODEL", "llama-3.3-70b-versatile")
+
+        elif pid == "ollama":
+            if task_type in ("vision", "chart"):
+                model = "llava"
+            else:
+                model = getattr(settings, "OLLAMA_MODEL", "llama3.2")
+
         else:
-            # Default text
-            model = settings.NVIDIA_MODEL if provider.provider_id == "nvidia_nim" else settings.OPENAI_MODEL
+            # openai_compatible or generic fallback
+            model = settings.OPENAI_MODEL
 
         return provider, model

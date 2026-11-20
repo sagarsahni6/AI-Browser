@@ -2,20 +2,30 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   Send,
   Sparkles,
-  Bot,
-  User,
   ShieldCheck,
   Camera,
   FileText,
-  Layers,
   CheckCircle2,
   Square,
   TrendingUp,
   Table,
   Globe,
-  Loader2
+  RotateCcw,
+  Cpu
 } from 'lucide-react';
 import { useBrowserStore } from '../store/browser-store';
+import { ChatMessageItem } from '../components/chat/ChatMessage';
+import { ApprovalDialog } from '../components/ApprovalDialog';
+import styles from './AssistantPanel.module.css';
+
+const PROVIDER_OPTIONS = [
+  { id: 'nvidia_nim', label: 'NVIDIA NIM' },
+  { id: 'openai_compatible', label: 'OpenAI Compatible' },
+  { id: 'anthropic', label: 'Anthropic Claude' },
+  { id: 'google_gemini', label: 'Google Gemini' },
+  { id: 'groq', label: 'Groq (Ultra-Fast)' },
+  { id: 'ollama', label: 'Ollama (Local)' },
+];
 
 export const AssistantPanel: React.FC = () => {
   const {
@@ -25,6 +35,7 @@ export const AssistantPanel: React.FC = () => {
     activeTab,
     isAgentRunning,
     activeAction,
+    setActiveAction,
     sendChatMessage,
     stopAssistant,
     inspectPage,
@@ -33,7 +44,9 @@ export const AssistantPanel: React.FC = () => {
 
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [selectedProvider, setSelectedProvider] = useState('nvidia_nim');
   const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -45,6 +58,9 @@ export const AssistantPanel: React.FC = () => {
     if (!input.trim() || loading || isAgentRunning) return;
     const text = input;
     setInput('');
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
     setLoading(true);
     try {
       await sendChatMessage(text);
@@ -55,9 +71,36 @@ export const AssistantPanel: React.FC = () => {
     }
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value);
+    e.target.style.height = 'auto';
+    e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
+  };
+
+  const handleClearChat = () => {
+    useBrowserStore.setState({
+      chatMessages: [
+        {
+          id: `welcome-${Date.now()}`,
+          sender: 'assistant',
+          content: 'Started new conversation. I can inspect pages, capture screenshots, summarize content, or conduct autonomous browser tasks.',
+          timestamp: Date.now()
+        }
+      ],
+      lastObservation: null,
+      lastScreenshotUrl: null
+    });
+  };
+
   const handleQuickSummarize = async () => {
     if (loading || isAgentRunning) return;
-    setInput('');
     setLoading(true);
     try {
       await sendChatMessage(`Summarize the current page: ${activeTab?.title || ''} (${activeTab?.url || ''})`);
@@ -109,82 +152,57 @@ export const AssistantPanel: React.FC = () => {
   };
 
   return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      width: '100%',
-      height: '100%',
-      backgroundColor: 'var(--bg-secondary)',
-      borderLeft: '1px solid var(--border-subtle)',
-    }}>
+    <div className={styles.container}>
       {/* Header */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '10px 14px',
-        borderBottom: '1px solid var(--border-subtle)',
-        backgroundColor: 'var(--bg-primary)'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <div className={styles.header}>
+        <div className={styles.headerLeft}>
           <Sparkles size={16} style={{ color: 'var(--accent-primary)' }} />
-          <span style={{ fontWeight: 600, fontSize: '13px' }}>AI Autonomous Agent</span>
+          <span className={styles.headerTitle}>AI Autonomous Agent</span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div className={styles.headerRight}>
           {isAgentRunning && (
             <button
               onClick={() => stopAssistant()}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                backgroundColor: '#ef4444',
-                color: '#fff',
-                border: 'none',
-                borderRadius: 'var(--radius-sm)',
-                padding: '3px 8px',
-                fontSize: '11px',
-                fontWeight: 600,
-                cursor: 'pointer'
-              }}
+              className={styles.stopBtn}
               title="Stop current agent action"
             >
               <Square size={10} fill="#fff" />
               <span>Stop Agent</span>
             </button>
           )}
-          <div style={{
-            fontSize: '11px',
-            color: 'var(--text-secondary)',
-            backgroundColor: 'var(--bg-tertiary)',
-            padding: '2px 8px',
-            borderRadius: 'var(--radius-sm)'
-          }}>
-            NVIDIA NIM (Multi-Model)
+
+          {/* Provider Selector Dropdown */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <Cpu size={12} style={{ color: 'var(--text-muted)' }} />
+            <select
+              value={selectedProvider}
+              onChange={(e) => setSelectedProvider(e.target.value)}
+              className={styles.badge}
+              style={{ cursor: 'pointer', outline: 'none' }}
+              title="Select Active AI Provider"
+            >
+              {PROVIDER_OPTIONS.map(p => (
+                <option key={p.id} value={p.id}>{p.label}</option>
+              ))}
+            </select>
           </div>
+
+          <button
+            onClick={handleClearChat}
+            className="icon-btn"
+            style={{ width: '24px', height: '24px' }}
+            title="Start New Conversation"
+          >
+            <RotateCcw size={12} />
+          </button>
         </div>
       </div>
 
       {/* Active Action Live Banner */}
-      {isAgentRunning && activeAction && (
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          padding: '7px 12px',
-          backgroundColor: 'rgba(59, 130, 246, 0.1)',
-          borderBottom: '1px solid rgba(59, 130, 246, 0.2)',
-          fontSize: '11.5px',
-          color: 'var(--accent-primary)'
-        }}>
-          <div style={{
-            width: '8px',
-            height: '8px',
-            borderRadius: '50%',
-            backgroundColor: '#3b82f6',
-            boxShadow: '0 0 6px #3b82f6'
-          }} />
+      {isAgentRunning && activeAction && activeAction.status !== 'approval_required' && (
+        <div className={`${styles.activeActionBanner} animate-slide-in-down`}>
+          <div className={styles.pulseDot} />
           <span style={{ fontWeight: 500 }}>
             Executing: <strong>{activeAction.action}</strong>
             {activeAction.parameters?.url ? ` (${activeAction.parameters.url})` : ''}
@@ -194,184 +212,77 @@ export const AssistantPanel: React.FC = () => {
         </div>
       )}
 
+      {/* Sensitive Action Approval Dialog */}
+      <ApprovalDialog
+        isOpen={Boolean(activeAction && activeAction.status === 'approval_required')}
+        actionTitle="Agent Requests Authorization"
+        reason={activeAction?.result || 'The autonomous agent is requesting permission to execute an action requiring user approval.'}
+        toolName={activeAction?.action}
+        parameters={activeAction?.parameters}
+        onApprove={() => {
+          if (activeAction?.parameters?.task_id && window.electronAPI?.approveTask) {
+            window.electronAPI.approveTask(activeAction.parameters.task_id, true);
+          }
+          setActiveAction(null);
+        }}
+        onReject={() => {
+          if (activeAction?.parameters?.task_id && window.electronAPI?.rejectTask) {
+            window.electronAPI.rejectTask(activeAction.parameters.task_id);
+          }
+          setActiveAction(null);
+          stopAssistant();
+        }}
+      />
+
       {/* Quick Action Chips */}
-      <div style={{
-        display: 'flex',
-        gap: '6px',
-        padding: '8px 12px',
-        overflowX: 'auto',
-        borderBottom: '1px solid var(--border-subtle)',
-        backgroundColor: 'var(--bg-secondary)'
-      }}>
-        <button
-          onClick={handleQuickTradingView}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '5px',
-            padding: '4px 8px',
-            backgroundColor: 'var(--bg-tertiary)',
-            borderRadius: 'var(--radius-sm)',
-            fontSize: '11px',
-            color: 'var(--text-secondary)',
-            whiteSpace: 'nowrap'
-          }}
-        >
+      <div className={styles.quickChips}>
+        <button onClick={handleQuickTradingView} className={styles.chipBtn}>
           <TrendingUp size={12} style={{ color: '#10b981' }} />
           <span>TradingView NVDA</span>
         </button>
 
-        <button
-          onClick={handleQuickOptionChain}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '5px',
-            padding: '4px 8px',
-            backgroundColor: 'var(--bg-tertiary)',
-            borderRadius: 'var(--radius-sm)',
-            fontSize: '11px',
-            color: 'var(--text-secondary)',
-            whiteSpace: 'nowrap'
-          }}
-        >
+        <button onClick={handleQuickOptionChain} className={styles.chipBtn}>
           <Table size={12} style={{ color: '#f59e0b' }} />
           <span>Option Chain</span>
         </button>
 
-        <button
-          onClick={handleQuickGoogle}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '5px',
-            padding: '4px 8px',
-            backgroundColor: 'var(--bg-tertiary)',
-            borderRadius: 'var(--radius-sm)',
-            fontSize: '11px',
-            color: 'var(--text-secondary)',
-            whiteSpace: 'nowrap'
-          }}
-        >
+        <button onClick={handleQuickGoogle} className={styles.chipBtn}>
           <Globe size={12} style={{ color: '#3b82f6' }} />
           <span>Open Google</span>
         </button>
 
-        <button
-          onClick={handleQuickSummarize}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '5px',
-            padding: '4px 8px',
-            backgroundColor: 'var(--bg-tertiary)',
-            borderRadius: 'var(--radius-sm)',
-            fontSize: '11px',
-            color: 'var(--text-secondary)',
-            whiteSpace: 'nowrap'
-          }}
-        >
+        <button onClick={handleQuickSummarize} className={styles.chipBtn}>
           <FileText size={12} />
           <span>Summarize Page</span>
         </button>
 
-        <button
-          onClick={handleQuickInspect}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '5px',
-            padding: '4px 8px',
-            backgroundColor: 'var(--bg-tertiary)',
-            borderRadius: 'var(--radius-sm)',
-            fontSize: '11px',
-            color: 'var(--text-secondary)',
-            whiteSpace: 'nowrap'
-          }}
-        >
+        <button onClick={handleQuickInspect} className={styles.chipBtn}>
           <ShieldCheck size={12} />
           <span>Inspect CDP</span>
         </button>
 
-        <button
-          onClick={() => capturePage()}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '5px',
-            padding: '4px 8px',
-            backgroundColor: 'var(--bg-tertiary)',
-            borderRadius: 'var(--radius-sm)',
-            fontSize: '11px',
-            color: 'var(--text-secondary)',
-            whiteSpace: 'nowrap'
-          }}
-        >
+        <button onClick={() => capturePage()} className={styles.chipBtn}>
           <Camera size={12} />
           <span>Screenshot</span>
         </button>
       </div>
 
       {/* Messages Scroll Area */}
-      <div
-        ref={scrollRef}
-        style={{
-          flex: 1,
-          overflowY: 'auto',
-          padding: '12px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '12px'
-        }}
-      >
+      <div ref={scrollRef} className={styles.chatList}>
         {chatMessages.map(msg => (
-          <div
+          <ChatMessageItem
             key={msg.id}
-            style={{
-              display: 'flex',
-              gap: '8px',
-              flexDirection: msg.sender === 'user' ? 'row-reverse' : 'row'
-            }}
-          >
-            <div style={{
-              width: '24px',
-              height: '24px',
-              borderRadius: '50%',
-              backgroundColor: msg.sender === 'user' ? 'var(--accent-primary)' : 'var(--bg-hover)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0
-            }}>
-              {msg.sender === 'user' ? <User size={12} /> : <Bot size={12} />}
-            </div>
-
-            <div style={{
-              maxWidth: '85%',
-              padding: '8px 12px',
-              borderRadius: 'var(--radius-md)',
-              backgroundColor: msg.sender === 'user' ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
-              color: msg.sender === 'user' ? '#fff' : 'var(--text-primary)',
-              fontSize: '12.5px',
-              lineHeight: 1.5,
-              wordBreak: 'break-word',
-              whiteSpace: 'pre-wrap'
-            }}>
-              {msg.content}
-            </div>
-          </div>
+            id={msg.id}
+            sender={msg.sender}
+            content={msg.content}
+            timestamp={msg.timestamp}
+            metadata={msg.metadata as any}
+          />
         ))}
 
         {/* Live Observation Card if available */}
         {lastObservation && (
-          <div style={{
-            backgroundColor: 'var(--bg-tertiary)',
-            border: '1px solid var(--border-subtle)',
-            borderRadius: 'var(--radius-md)',
-            padding: '10px',
-            fontSize: '11.5px',
-            marginTop: '4px'
-          }}>
+          <div className={`${styles.observationCard} animate-fade-in`}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--success)', marginBottom: '6px' }}>
               <CheckCircle2 size={13} />
               <span style={{ fontWeight: 600 }}>CDP Observation Attached</span>
@@ -387,57 +298,40 @@ export const AssistantPanel: React.FC = () => {
 
         {/* Screenshot preview if available */}
         {lastScreenshotUrl && (
-          <div style={{
-            border: '1px solid var(--border-subtle)',
-            borderRadius: 'var(--radius-md)',
-            overflow: 'hidden',
-            backgroundColor: '#000',
-            marginTop: '4px'
-          }}>
+          <div className={`${styles.screenshotPreview} animate-fade-in`}>
             <img
               src={lastScreenshotUrl}
               alt="Screenshot Preview"
-              style={{ width: '100%', height: 'auto', display: 'block' }}
+              className={styles.screenshotImg}
             />
           </div>
         )}
       </div>
 
       {/* Input area */}
-      <div style={{
-        padding: '10px 12px',
-        borderTop: '1px solid var(--border-subtle)',
-        backgroundColor: 'var(--bg-primary)'
-      }}>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          backgroundColor: 'var(--bg-secondary)',
-          borderRadius: 'var(--radius-md)',
-          border: '1px solid var(--border-subtle)',
-          padding: '4px 8px 4px 12px',
-          gap: '8px'
-        }}>
-          <input
-            type="text"
+      <div className={styles.inputArea}>
+        <div className={styles.inputWrapper}>
+          <textarea
+            ref={textareaRef}
+            rows={1}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleSend();
-            }}
-            placeholder="Ask AI about this page or task..."
+            onChange={handleTextareaChange}
+            onKeyDown={handleKeyDown}
+            placeholder="Ask AI or delegate a task (Enter to send, Shift+Enter for new line)..."
             style={{
               flex: 1,
               fontSize: '12px',
-              color: 'var(--text-primary)'
+              color: 'var(--text-primary)',
+              resize: 'none',
+              maxHeight: '120px',
+              lineHeight: '1.4'
             }}
           />
           <button
             onClick={handleSend}
             disabled={!input.trim() || loading}
+            className={styles.sendBtn}
             style={{
-              padding: '6px',
-              borderRadius: 'var(--radius-sm)',
               backgroundColor: input.trim() && !loading ? 'var(--accent-primary)' : 'transparent',
               color: input.trim() && !loading ? '#fff' : 'var(--text-muted)'
             }}

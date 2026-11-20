@@ -30,6 +30,25 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_MODEL: str = "gpt-4o"
 
+    # Anthropic Claude
+    ANTHROPIC_API_KEY: Optional[str] = None
+    ANTHROPIC_MODEL: str = "claude-3-5-sonnet-20241022"
+
+    # Google Gemini
+    GOOGLE_API_KEY: Optional[str] = None
+    GOOGLE_MODEL: str = "gemini-2.0-flash"
+
+    # Groq (Ultra-Fast)
+    GROQ_API_KEY: Optional[str] = None
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+
+    # Ollama (Local)
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "llama3.2"
+
+    # Default Active Provider
+    DEFAULT_PROVIDER: str = "nvidia_nim"
+
     # Database
     DATABASE_URL: str = "sqlite+aiosqlite:///./ai_browser.db"
 

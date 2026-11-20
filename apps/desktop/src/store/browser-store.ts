@@ -45,6 +45,7 @@ interface BrowserStore {
   switchTab: (id: string) => Promise<void>;
   restoreClosedTab: () => Promise<void>;
   duplicateTab: (id: string) => Promise<void>;
+  setTabPinned: (id: string, isPinned: boolean) => Promise<void>;
   navigate: (url: string) => Promise<void>;
   goBack: () => Promise<void>;
   goForward: () => Promise<void>;
@@ -208,6 +209,12 @@ export const useBrowserStore = create<BrowserStore>((set, get) => ({
   duplicateTab: async (id) => {
     if (window.electronAPI?.duplicateTab) {
       await window.electronAPI.duplicateTab(id);
+    }
+  },
+
+  setTabPinned: async (id: string, isPinned: boolean) => {
+    if (window.electronAPI?.setTabPinned) {
+      await window.electronAPI.setTabPinned(id, isPinned);
     }
   },
 

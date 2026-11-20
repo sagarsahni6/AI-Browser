@@ -11,6 +11,7 @@ export interface ShortcutHandlers {
   onPrevTab: () => void;
   onToggleSidebar: () => void;
   onToggleAssistant: () => void;
+  onOpenCommandPalette?: () => void;
 }
 
 export function registerShortcuts(wc: WebContents, handlers: ShortcutHandlers) {
@@ -83,6 +84,13 @@ export function registerShortcuts(wc: WebContents, handlers: ShortcutHandlers) {
     if (isCtrlOrCmd && (input.key.toLowerCase() === 'i' || (input.shift && input.key.toLowerCase() === 'a'))) {
       _event.preventDefault();
       handlers.onToggleAssistant();
+      return;
+    }
+
+    // Ctrl+K: Command Palette
+    if (isCtrlOrCmd && input.key.toLowerCase() === 'k') {
+      _event.preventDefault();
+      handlers.onOpenCommandPalette?.();
       return;
     }
   });

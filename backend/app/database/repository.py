@@ -149,3 +149,80 @@ class Repository:
         stmt = select(TaskStep).where(TaskStep.task_id == task_id).order_by(TaskStep.step_number.asc())
         res = await self.db.execute(stmt)
         return list(res.scalars().all())
+
+    # Research Collections
+    async def create_collection(self, name: str, description: Optional[str] = None) -> ResearchCollection:
+        col = ResearchCollection(
+            id=f"col-{uuid.uuid4().hex[:12]}",
+            name=name,
+            description=description,
+            created_at=time.time()
+        )
+        self.db.add(col)
+        await self.db.commit()
+        await self.db.refresh(col)
+        return col
+
+    async def get_collections(self, limit: int = 50) -> List[ResearchCollection]:
+        stmt = select(ResearchCollection).order_by(ResearchCollection.created_at.desc()).limit(limit)
+        res = await self.db.execute(stmt)
+        return list(res.scalars().all())
+
+    async def get_collection(self, col_id: str) -> Optional[ResearchCollection]:
+        stmt = select(ResearchCollection).where(ResearchCollection.id == col_id)
+        res = await self.db.execute(stmt)
+        return res.scalars().first()
+
+    async def add_source_to_collection(self, col_id: str, url: str, title: str, excerpt: Optional[str] = None) -> ResearchSource:
+        src = ResearchSource(
+            id=f"src-{uuid.uuid4().hex[:12]}",
+            collection_id=col_id,
+            url=url,
+            title=title,
+            excerpt=excerpt,
+            cited_at=time.time()
+        )
+        self.db.add(src)
+        await self.db.commit()
+        await self.db.refresh(src)
+        return src
+
+    async def delete_collection(self, col_id: str) -> bool:
+        from sqlalchemy import delete
+        await self.db.execute(delete(ResearchCollection).where(ResearchCollection.id == col_id))
+        await self.db.commit()
+        return True
+
+    # Approvals
+    async def create_approval_request(
+        self,
+        task_id: str,
+        tool_name: str,
+        action_type: str,
+        description: str,
+        parameters_json: Optional[str] = None
+    ) -> ApprovalRequest:
+        appr = ApprovalRequest(
+            id=f"appr-{uuid.uuid4().hex[:12]}",
+            task_id=task_id,
+            tool_name=tool_name,
+            action_type=action_type,
+            description=description,
+            parameters_json=parameters_json,
+            status="pending",
+            created_at=time.time()
+        )
+        self.db.add(appr)
+        await self.db.commit()
+        await self.db.refresh(appr)
+        return appr
+
+    async def update_approval_status(self, request_id: str, status: str) -> Optional[ApprovalRequest]:
+        stmt = select(ApprovalRequest).where(ApprovalRequest.id == request_id)
+        res = await self.db.execute(stmt)
+        appr = res.scalars().first()
+        if appr:
+            appr.status = status
+            await self.db.commit()
+            await self.db.refresh(appr)
+        return appr
