@@ -208,13 +208,30 @@ bridge.register_method("assistant.chat", handle_assistant_chat)
 async def handle_tasks_create(params: dict):
     title = params.get("title", "Autonomous Task")
     prompt = params.get("prompt", "")
+    engine = params.get("engine", settings.DEFAULT_AGENT_ENGINE)
+    provider = params.get("provider")
+    model = params.get("model")
+    mode = params.get("mode", "active_tab")
+
     async with AsyncSessionLocal() as session:
         repo = Repository(session)
         task = await repo.create_task(title=title, prompt=prompt)
         task_id = task.id
-    from backend.app.agents.supervisor import SupervisorAgent
-    asyncio.create_task(SupervisorAgent.run_task(task_id))
-    return {"id": task_id, "title": title, "prompt": prompt, "status": "running"}
+
+    if engine == "browser_use":
+        from backend.app.agents.browser_use_agent import BrowserUseEngine
+        asyncio.create_task(BrowserUseEngine.execute_task(
+            task_id=task_id,
+            prompt=prompt,
+            provider=provider,
+            model=model,
+            execution_mode=mode
+        ))
+    else:
+        from backend.app.agents.supervisor import SupervisorAgent
+        asyncio.create_task(SupervisorAgent.run_task(task_id))
+
+    return {"id": task_id, "title": title, "prompt": prompt, "status": "running", "engine": engine}
 
 async def handle_tasks_list(params: dict):
     limit = params.get("limit", 20)

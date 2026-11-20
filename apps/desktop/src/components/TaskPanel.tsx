@@ -40,6 +40,8 @@ export const TaskPanel: React.FC = () => {
   const [showCreate, setShowCreate] = useState(false);
   const [title, setTitle] = useState('');
   const [prompt, setPrompt] = useState('');
+  const [engine, setEngine] = useState<'browser_use' | 'native'>('browser_use');
+  const [executionMode, setExecutionMode] = useState<'active_tab' | 'background'>('active_tab');
   const [loading, setLoading] = useState(false);
 
   const loadTasks = async () => {
@@ -85,7 +87,10 @@ export const TaskPanel: React.FC = () => {
     try {
       const taskTitle = title.trim() || prompt.slice(0, 30);
       if (window.electronAPI?.createTask) {
-        const newTask = await window.electronAPI.createTask(taskTitle, prompt);
+        const newTask = await window.electronAPI.createTask(taskTitle, prompt, {
+          engine,
+          mode: executionMode
+        });
         setShowCreate(false);
         setTitle('');
         setPrompt('');
@@ -175,6 +180,33 @@ export const TaskPanel: React.FC = () => {
             onChange={(e) => setPrompt(e.target.value)}
             required
           />
+
+          {/* Engine Selector */}
+          <div className={styles.optionRow}>
+            <span className={styles.optionLabel}>Engine:</span>
+            <select
+              className={styles.optionSelect}
+              value={engine}
+              onChange={(e) => setEngine(e.target.value as any)}
+            >
+              <option value="browser_use">Browser Use (Vision & CDP)</option>
+              <option value="native">Native Supervisor Agent</option>
+            </select>
+          </div>
+
+          {/* Execution Mode */}
+          <div className={styles.optionRow}>
+            <span className={styles.optionLabel}>Target:</span>
+            <select
+              className={styles.optionSelect}
+              value={executionMode}
+              onChange={(e) => setExecutionMode(e.target.value as any)}
+            >
+              <option value="active_tab">Active Tab (Live Interaction)</option>
+              <option value="background">Background Stealth Session</option>
+            </select>
+          </div>
+
           <button type="submit" disabled={loading || !prompt.trim()} className={styles.submitBtn}>
             <Play size={12} fill="#fff" />
             <span>{loading ? 'Starting...' : 'Launch Agent Task'}</span>

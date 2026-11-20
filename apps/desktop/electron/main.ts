@@ -127,6 +127,9 @@ async function createWindow() {
   });
 }
 
+// Enable Chrome DevTools Protocol port for browser-use and advanced agent visual grounding
+app.commandLine.appendSwitch('remote-debugging-port', '9222');
+
 app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {

@@ -38,6 +38,32 @@
   font-family: inherit;
 }
 
+.optionRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.optionLabel {
+  width: 50px;
+  font-size: 10.5px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.optionSelect {
+  flex: 1;
+  font-size: 11px;
+  padding: 4px 6px;
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
 .submitBtn {
   background-color: var(--accent-primary);
   color: #fff;

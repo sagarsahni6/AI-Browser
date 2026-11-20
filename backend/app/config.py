@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     # Default Active Provider
     DEFAULT_PROVIDER: str = "nvidia_nim"
 
+    # Browser Use Integration
+    BROWSER_USE_API_KEY: Optional[str] = None
+    BROWSER_USE_CDP_URL: str = "http://127.0.0.1:9222"
+    DEFAULT_AGENT_ENGINE: str = "browser_use"
+
     # Database
     DATABASE_URL: str = "sqlite+aiosqlite:///./ai_browser.db"
 

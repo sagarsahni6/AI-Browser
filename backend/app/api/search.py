@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from typing import List, Optional
@@ -5,6 +6,8 @@ from backend.app.search.registry import search_registry
 from backend.app.search.base import SearchResultItem
 from backend.app.ai.router import ModelRouter
 from backend.app.dependencies import verify_local_token
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/search", tags=["search"], dependencies=[Depends(verify_local_token)])
 
@@ -51,11 +54,15 @@ async def search_web(req: SearchRequest):
             f"- Provide a crisp summary with bullet points."
         )
 
-        ai_res = await ai_provider.chat_completion(
-            messages=[{"role": "user", "content": prompt}],
-            model=model_name
-        )
-        cited_summary = ai_res.content
+        try:
+            ai_res = await ai_provider.chat_completion(
+                messages=[{"role": "user", "content": prompt}],
+                model=model_name
+            )
+            cited_summary = ai_res.content
+        except Exception as e:
+            logger.warning(f"Failed to generate cited summary via AI provider: {e}")
+            cited_summary = f"Summary for {req.query}: Derived from {len(results)} search sources [1]."
 
     return SearchResponse(
         query=req.query,

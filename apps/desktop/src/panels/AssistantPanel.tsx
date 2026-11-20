@@ -19,6 +19,7 @@ import { ApprovalDialog } from '../components/ApprovalDialog';
 import styles from './AssistantPanel.module.css';
 
 const PROVIDER_OPTIONS = [
+  { id: 'browser_use_cloud', label: 'Browser Use Cloud (bu-4.0)' },
   { id: 'nvidia_nim', label: 'NVIDIA NIM' },
   { id: 'openai_compatible', label: 'OpenAI Compatible' },
   { id: 'anthropic', label: 'Anthropic Claude' },

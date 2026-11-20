@@ -27,6 +27,18 @@ interface ProviderConfig {
 
 const PROVIDERS: ProviderConfig[] = [
   {
+    id: 'browser_use_cloud',
+    name: 'Browser Use Cloud',
+    keyName: 'BROWSER_USE_API_KEY',
+    defaultModel: 'bu-4.0',
+    models: [
+      'bu-4.0',
+      'bu-4.0-pro'
+    ],
+    requiresKey: true,
+    helpText: 'Official Browser Use Cloud gateway with hosted stealth browsers and bu-4.0.'
+  },
+  {
     id: 'nvidia_nim',
     name: 'NVIDIA NIM (Primary)',
     keyName: 'NVIDIA_API_KEY',

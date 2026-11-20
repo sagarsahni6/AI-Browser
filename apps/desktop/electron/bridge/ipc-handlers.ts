@@ -309,9 +309,9 @@ export function setupIpcHandlers(deps: {
   });
 
   // Task & Multi-Agent Operations
-  ipcMain.handle(IPC_CHANNELS.TASK_CREATE, async (_event, { title, prompt }: { title: string; prompt: string }) => {
+  ipcMain.handle(IPC_CHANNELS.TASK_CREATE, async (_event, payload: { title: string; prompt: string; engine?: string; provider?: string; model?: string; mode?: string }) => {
     if (processManager.getStatus().online) {
-      return await rpcClient.call('tasks.create', { title, prompt });
+      return await rpcClient.call('tasks.create', payload);
     }
     return { error: 'Backend offline' };
   });

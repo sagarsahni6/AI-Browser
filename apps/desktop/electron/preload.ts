@@ -162,8 +162,8 @@ const electronAPI = {
   },
 
   // Multi-Agent Task Operations
-  createTask: (title: string, prompt: string): Promise<any> => {
-    return ipcRenderer.invoke(IPC_CHANNELS.TASK_CREATE, { title, prompt });
+  createTask: (title: string, prompt: string, options?: { engine?: string; provider?: string; model?: string; mode?: string }): Promise<any> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.TASK_CREATE, { title, prompt, ...options });
   },
   listTasks: (): Promise<any[]> => {
     return ipcRenderer.invoke(IPC_CHANNELS.TASKS_LIST);
