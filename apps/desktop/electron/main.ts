@@ -1,4 +1,4 @@
-import { app, BaseWindow } from 'electron';
+import { app, BaseWindow, Menu } from 'electron';
 import { createPanelView } from './panels/panel-factory';
 import { LayoutManager } from './layout-manager';
 import { TabManager } from './browser/tab-manager';
@@ -21,6 +21,7 @@ let sessionManager: SessionManager | null = null;
 let processManager: ProcessManager | null = null;
 
 async function createWindow() {
+  Menu.setApplicationMenu(null);
   mainWindow = new BaseWindow({
     width: 1360,
     height: 860,

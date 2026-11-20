@@ -14,6 +14,8 @@ export function createPanelView(panelName: 'toolbar' | 'sidebar' | 'assistant'):
     }
   });
 
+  view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
   const devUrl = process.env.VITE_DEV_SERVER_URL;
   if (devUrl) {
     view.webContents.loadURL(`${devUrl}?panel=${panelName}`);

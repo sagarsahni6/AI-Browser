@@ -178,6 +178,20 @@ export class TabManager {
       wc.loadURL(errorPageDataUrl);
     });
 
+    // Intercept window.open, target="_blank", and OAuth popups: open as tabs inside AI Browser
+    wc.setWindowOpenHandler((details) => {
+      const targetUrl = details.url;
+      if (targetUrl && targetUrl !== 'about:blank') {
+        this.createTab(targetUrl, isPrivate);
+      }
+      return { action: 'deny' };
+    });
+
+    // Handle tab self-close when in-page script calls window.close()
+    wc.on('close', () => {
+      this.closeTab(id);
+    });
+
     // Attach Context Menu
     attachContextMenu(wc, {
       onBookmarkPage: (url, title) => this.onBookmarkPage?.(url, title),
