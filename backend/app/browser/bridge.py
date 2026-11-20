@@ -6,6 +6,15 @@ import logging
 from typing import Any, Callable, Coroutine, Dict, Optional
 from backend.app.browser.protocol import JsonRpcRequest, JsonRpcResponse, JsonRpcError
 
+if sys.platform == "win32":
+    for _stream_name in ("stdout", "stderr", "stdin"):
+        _st = getattr(sys, _stream_name, None)
+        if _st and hasattr(_st, "reconfigure"):
+            try:
+                _st.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
 logger = logging.getLogger("rpc_bridge")
 handler = logging.StreamHandler(sys.stderr)
 handler.setFormatter(logging.Formatter("[Python Bridge] %(asctime)s - %(levelname)s - %(message)s"))

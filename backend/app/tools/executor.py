@@ -89,6 +89,54 @@ class ToolExecutor:
                     "row_count": len(rows)
                 }
 
+            elif tool_name == "evaluate_javascript":
+                script = params.get("script", "")
+                res = await bridge.call("browser.evaluate_js", {"script": script})
+                return {"status": "success", "result": res}
+
+            elif tool_name == "extract_table_data":
+                selector = params.get("selector")
+                extract_script = f"""
+                (() => {{
+                    const table = {f'document.querySelector("{selector}")' if selector else 'document.querySelector("table")'};
+                    if (!table) return {{ found: false }};
+                    const headers = Array.from(table.querySelectorAll('th')).map(th => th.innerText.trim());
+                    const rows = Array.from(table.querySelectorAll('tbody tr')).map(tr => 
+                        Array.from(tr.querySelectorAll('td')).map(td => td.innerText.trim())
+                    ).filter(r => r.length > 0);
+                    return {{ found: true, headers, rows: rows.slice(0, 50) }};
+                }})()
+                """
+                res = await bridge.call("browser.evaluate_js", {"script": extract_script})
+                return {"status": "success", "data": res}
+
+            elif tool_name == "press_hotkey":
+                key = params.get("key", "Enter")
+                await bridge.call("browser.press_key", {"key": key})
+                return {"status": "success", "key": key}
+
+            elif tool_name == "inspect_visual_chart":
+                question = params.get("question", "Describe what is shown in this chart.")
+                b64_img = await bridge.call("browser.capture_screenshot", {})
+                from backend.app.ai.router import ModelRouter
+                v_provider, v_model = ModelRouter.route_for_task(task_type="vision")
+                raw_b64 = b64_img.split(",", 1)[-1] if "," in b64_img else b64_img
+                vision_messages = [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": f"Examine this browser chart/canvas view. {question}"},
+                            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{raw_b64}"}}
+                        ]
+                    }
+                ]
+                v_res = await v_provider.chat_completion(messages=vision_messages, model=v_model)
+                return {
+                    "status": "success",
+                    "visual_analysis": v_res.content,
+                    "model": v_model
+                }
+
             else:
                 return {"status": "error", "message": f"Unknown tool: {tool_name}"}
 

@@ -1,10 +1,20 @@
 import asyncio
 import os
 import sys
+import json
 import uvicorn
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+if sys.platform == "win32":
+    for _s in ("stdout", "stderr", "stdin"):
+        _stream = getattr(sys, _s, None)
+        if _stream and hasattr(_stream, "reconfigure"):
+            try:
+                _stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
 
 from backend.app.config import settings
 from backend.app.database.engine import init_db, AsyncSessionLocal
@@ -18,6 +28,8 @@ from backend.app.api.providers import router as providers_router
 from backend.app.api.search import router as search_router
 from backend.app.ai.router import ModelRouter
 from backend.app.api.assistant import build_system_prompt
+from backend.app.tools.definitions import BROWSER_TOOLS
+from backend.app.tools.executor import ToolExecutor
 
 def sanitize_val(val):
     if isinstance(val, str):
@@ -28,8 +40,20 @@ def sanitize_val(val):
         return [sanitize_val(x) for x in val]
     return val
 
+_agent_cancelled = False
+
+async def handle_assistant_stop(params: dict):
+    global _agent_cancelled
+    _agent_cancelled = True
+    return {"status": "stopped"}
+
+bridge.register_method("assistant.stop", handle_assistant_stop)
+
 # Handle RPC methods invoked directly by Electron
 async def handle_assistant_chat(params: dict):
+    global _agent_cancelled
+    _agent_cancelled = False
+
     clean_params = sanitize_val(params) or {}
     msg_content = clean_params.get("message", "")
     context = clean_params.get("context", {})
@@ -55,33 +79,110 @@ async def handle_assistant_chat(params: dict):
     except Exception as e:
         sys.stderr.write(f"[DB Error in RPC] {e}\n")
 
-    # 2. Route to active AI Provider (NVIDIA NIM)
+    # 2. Determine task nature & route to appropriate AI model
+    lowered = msg_content.lower()
+    if any(k in lowered for k in ["chart", "candlestick", "tradingview", "visual", "look at", "see"]):
+        task_type = "vision"
+    elif any(k in lowered for k in ["option chain", "finance", "calculate", "analyze strikes", "greeks"]):
+        task_type = "finance"
+    elif any(k in lowered for k in ["open", "go to", "navigate", "click", "search", "extract", "fill", "scroll"]):
+        task_type = "tools"
+    else:
+        task_type = "tools"
+
     provider, model = ModelRouter.route_for_task(
-        task_type="text",
+        task_type=task_type,
         preferred_provider=provider_id,
         preferred_model=preferred_model
     )
 
-    system_prompt = build_system_prompt(context)
+    system_prompt = (
+        "You are the autonomous AI Browser Agent with direct access to live browser tools.\n"
+        "You can navigate to websites, inspect HTML and dynamic canvas/charts, evaluate JavaScript, "
+        "extract Option Chain tables, click elements, fill inputs, take screenshots, and export CSV files.\n"
+        "When the user asks you to open a site, search, extract data, inspect a chart, or interact, "
+        "CALL THE RELEVANT TOOL IMMEDIATELY.\n"
+        "After actions complete, provide a clear, helpful confirmation with structured data or key metrics."
+    )
+    if context:
+        title = context.get("title", "")
+        url = context.get("url", "")
+        system_prompt += f"\n[CURRENT WEBPAGE CONTEXT]\nURL: {url}\nTitle: {title}\n"
+        if context.get("visibleText"):
+            system_prompt += f"Excerpt: {context['visibleText'][:1500]}\n"
+
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": msg_content}
     ]
 
     reply_content = ""
+    max_turns = 6
+    turn = 0
+
     try:
-        # Stream response chunks to Electron in real-time
-        async for chunk in provider.stream_completion(messages=messages, model=model):
-            reply_content += chunk
-            bridge.notify("chat:stream", {"chunk": chunk, "conversation_id": conv_id})
-    except Exception as stream_err:
-        sys.stderr.write(f"[Stream Error, falling back to chat_completion] {stream_err}\n")
-        try:
-            result = await provider.chat_completion(messages=messages, model=model)
-            reply_content = result.content or "No response generated."
-        except Exception as err:
-            sys.stderr.write(f"[AI Chat Error] {err}\n")
-            reply_content = f"AI Assistant error: {str(err)}"
+        while turn < max_turns and not _agent_cancelled:
+            turn += 1
+            completion = await provider.chat_completion(
+                messages=messages,
+                model=model,
+                tools=BROWSER_TOOLS
+            )
+
+            if completion.tool_calls and not _agent_cancelled:
+                for tc in completion.tool_calls:
+                    if _agent_cancelled:
+                        break
+                    fn_name = tc.get("function", {}).get("name")
+                    raw_args = tc.get("function", {}).get("arguments", "{}")
+                    try:
+                        args = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+                    except Exception:
+                        args = {}
+
+                    # Notify UI of live action
+                    bridge.notify("chat:action", {
+                        "action": fn_name,
+                        "parameters": args,
+                        "status": "running"
+                    })
+
+                    # Execute tool
+                    tool_res = await ToolExecutor.execute(fn_name, args)
+
+                    bridge.notify("chat:action", {
+                        "action": fn_name,
+                        "parameters": args,
+                        "status": "completed",
+                        "result": tool_res
+                    })
+
+                    messages.append({
+                        "role": "assistant",
+                        "content": completion.content or f"Executing {fn_name}",
+                        "tool_calls": [tc]
+                    })
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.get("id", f"call-{turn}"),
+                        "name": fn_name,
+                        "content": json.dumps(tool_res)
+                    })
+
+                if fn_name == "navigate":
+                    await asyncio.sleep(1.0)
+            else:
+                reply_content = completion.content or "Action completed."
+                break
+
+        if _agent_cancelled:
+            reply_content += "\n\n*(Agent execution stopped by user)*"
+        elif not reply_content:
+            reply_content = "Action completed."
+
+    except Exception as err:
+        sys.stderr.write(f"[AI Chat Agent Error] {err}\n")
+        reply_content = f"AI Assistant error: {str(err)}"
 
     # 3. Persist assistant reply to database
     try:

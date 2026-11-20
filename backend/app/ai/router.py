@@ -6,7 +6,7 @@ from backend.app.config import settings
 class ModelRouter:
     @staticmethod
     def route_for_task(
-        task_type: str = "text", # text, vision, tools, research
+        task_type: str = "text", # text, vision, tools, chart, canvas, reasoning, finance, research
         preferred_provider: Optional[str] = None,
         preferred_model: Optional[str] = None
     ) -> Tuple[BaseAIProvider, str]:
@@ -15,9 +15,11 @@ class ModelRouter:
         if preferred_model:
             return provider, preferred_model
 
-        if task_type == "vision":
+        if task_type in ("vision", "chart", "canvas"):
             model = settings.NVIDIA_VISION_MODEL if provider.provider_id == "nvidia_nim" else "gpt-4o"
-        elif task_type in ("tools", "research"):
+        elif task_type in ("reasoning", "finance", "synthesis"):
+            model = settings.NVIDIA_REASONING_MODEL if provider.provider_id == "nvidia_nim" else settings.OPENAI_MODEL
+        elif task_type in ("tools", "navigation", "research"):
             model = settings.NVIDIA_MODEL if provider.provider_id == "nvidia_nim" else settings.OPENAI_MODEL
         else:
             # Default text

@@ -51,7 +51,9 @@ export const IPC_CHANNELS = {
 
   // Assistant & Chat
   SEND_CHAT_MESSAGE: 'chat:send-message',
-  CHAT_STREAM_CHUNK: 'chat:stream-chunk'
+  CHAT_STREAM_CHUNK: 'chat:stream-chunk',
+  CHAT_ACTION_UPDATE: 'chat:action-update',
+  STOP_ASSISTANT: 'chat:stop'
 } as const;
 
 export type IpcChannel = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS];

@@ -144,6 +144,18 @@ const electronAPI = {
     return () => {
       ipcRenderer.removeListener(IPC_CHANNELS.CHAT_STREAM_CHUNK, handler);
     };
+  },
+  stopAssistant: (): Promise<boolean> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.STOP_ASSISTANT);
+  },
+  onChatAction: (callback: (data: { action: string; parameters?: any; status: string; result?: any }) => void) => {
+    const handler = (_event: unknown, data: any) => {
+      callback(data);
+    };
+    ipcRenderer.on(IPC_CHANNELS.CHAT_ACTION_UPDATE, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.CHAT_ACTION_UPDATE, handler);
+    };
   }
 };
 

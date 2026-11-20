@@ -57,13 +57,11 @@ class NvidiaNimProvider(BaseAIProvider):
         import re
         clean = []
         for m in messages:
-            content = m.get("content", "")
+            item = dict(m)
+            content = item.get("content")
             if isinstance(content, str):
-                content = re.sub(r'[\ud800-\udfff]', '', content).encode("utf-8", "ignore").decode("utf-8")
-            clean.append({
-                "role": m.get("role", "user"),
-                "content": content
-            })
+                item["content"] = re.sub(r'[\ud800-\udfff]', '', content).encode("utf-8", "ignore").decode("utf-8")
+            clean.append(item)
         return clean
 
     async def chat_completion(

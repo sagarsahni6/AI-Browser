@@ -53,10 +53,15 @@ export const App: React.FC = () => {
         appendChatChunk(chunk);
       });
 
+      const unsubAction = window.electronAPI.onChatAction?.((action) => {
+        useBrowserStore.getState().setActiveAction(action);
+      });
+
       return () => {
         unsubTabs();
         unsubBackend();
         unsubChat();
+        unsubAction?.();
       };
     }
   }, [setTabs, setSidebarOpen, setAssistantOpen, setBackendStatus, appendChatChunk]);

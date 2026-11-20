@@ -8,7 +8,12 @@ import {
   Camera,
   FileText,
   Layers,
-  CheckCircle2
+  CheckCircle2,
+  Square,
+  TrendingUp,
+  Table,
+  Globe,
+  Loader2
 } from 'lucide-react';
 import { useBrowserStore } from '../store/browser-store';
 
@@ -18,7 +23,10 @@ export const AssistantPanel: React.FC = () => {
     lastObservation,
     lastScreenshotUrl,
     activeTab,
+    isAgentRunning,
+    activeAction,
     sendChatMessage,
+    stopAssistant,
     inspectPage,
     capturePage
   } = useBrowserStore();
@@ -31,10 +39,10 @@ export const AssistantPanel: React.FC = () => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [chatMessages, lastObservation, lastScreenshotUrl]);
+  }, [chatMessages, lastObservation, lastScreenshotUrl, activeAction]);
 
   const handleSend = async () => {
-    if (!input.trim() || loading) return;
+    if (!input.trim() || loading || isAgentRunning) return;
     const text = input;
     setInput('');
     setLoading(true);
@@ -48,11 +56,41 @@ export const AssistantPanel: React.FC = () => {
   };
 
   const handleQuickSummarize = async () => {
-    if (loading) return;
+    if (loading || isAgentRunning) return;
     setInput('');
     setLoading(true);
     try {
       await sendChatMessage(`Summarize the current page: ${activeTab?.title || ''} (${activeTab?.url || ''})`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleQuickTradingView = async () => {
+    if (loading || isAgentRunning) return;
+    setLoading(true);
+    try {
+      await sendChatMessage(`Open TradingView (https://www.tradingview.com/chart/?symbol=NVDA) and analyze the NVDA daily chart.`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleQuickOptionChain = async () => {
+    if (loading || isAgentRunning) return;
+    setLoading(true);
+    try {
+      await sendChatMessage(`Extract option chain table data for SPY or current stock and export to CSV.`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleQuickGoogle = async () => {
+    if (loading || isAgentRunning) return;
+    setLoading(true);
+    try {
+      await sendChatMessage(`Open google.com`);
     } finally {
       setLoading(false);
     }
@@ -90,18 +128,71 @@ export const AssistantPanel: React.FC = () => {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Sparkles size={16} style={{ color: 'var(--accent-primary)' }} />
-          <span style={{ fontWeight: 600, fontSize: '13px' }}>AI Assistant</span>
+          <span style={{ fontWeight: 600, fontSize: '13px' }}>AI Autonomous Agent</span>
         </div>
-        <div style={{
-          fontSize: '11px',
-          color: 'var(--text-secondary)',
-          backgroundColor: 'var(--bg-tertiary)',
-          padding: '2px 8px',
-          borderRadius: 'var(--radius-sm)'
-        }}>
-          NVIDIA NIM
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {isAgentRunning && (
+            <button
+              onClick={() => stopAssistant()}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                backgroundColor: '#ef4444',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 'var(--radius-sm)',
+                padding: '3px 8px',
+                fontSize: '11px',
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
+              title="Stop current agent action"
+            >
+              <Square size={10} fill="#fff" />
+              <span>Stop Agent</span>
+            </button>
+          )}
+          <div style={{
+            fontSize: '11px',
+            color: 'var(--text-secondary)',
+            backgroundColor: 'var(--bg-tertiary)',
+            padding: '2px 8px',
+            borderRadius: 'var(--radius-sm)'
+          }}>
+            NVIDIA NIM (Multi-Model)
+          </div>
         </div>
       </div>
+
+      {/* Active Action Live Banner */}
+      {isAgentRunning && activeAction && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          padding: '7px 12px',
+          backgroundColor: 'rgba(59, 130, 246, 0.1)',
+          borderBottom: '1px solid rgba(59, 130, 246, 0.2)',
+          fontSize: '11.5px',
+          color: 'var(--accent-primary)'
+        }}>
+          <div style={{
+            width: '8px',
+            height: '8px',
+            borderRadius: '50%',
+            backgroundColor: '#3b82f6',
+            boxShadow: '0 0 6px #3b82f6'
+          }} />
+          <span style={{ fontWeight: 500 }}>
+            Executing: <strong>{activeAction.action}</strong>
+            {activeAction.parameters?.url ? ` (${activeAction.parameters.url})` : ''}
+            {activeAction.parameters?.query ? ` "${activeAction.parameters.query}"` : ''}
+            {activeAction.parameters?.question ? ` (${activeAction.parameters.question})` : ''}
+          </span>
+        </div>
+      )}
 
       {/* Quick Action Chips */}
       <div style={{
@@ -112,6 +203,60 @@ export const AssistantPanel: React.FC = () => {
         borderBottom: '1px solid var(--border-subtle)',
         backgroundColor: 'var(--bg-secondary)'
       }}>
+        <button
+          onClick={handleQuickTradingView}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+            padding: '4px 8px',
+            backgroundColor: 'var(--bg-tertiary)',
+            borderRadius: 'var(--radius-sm)',
+            fontSize: '11px',
+            color: 'var(--text-secondary)',
+            whiteSpace: 'nowrap'
+          }}
+        >
+          <TrendingUp size={12} style={{ color: '#10b981' }} />
+          <span>TradingView NVDA</span>
+        </button>
+
+        <button
+          onClick={handleQuickOptionChain}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+            padding: '4px 8px',
+            backgroundColor: 'var(--bg-tertiary)',
+            borderRadius: 'var(--radius-sm)',
+            fontSize: '11px',
+            color: 'var(--text-secondary)',
+            whiteSpace: 'nowrap'
+          }}
+        >
+          <Table size={12} style={{ color: '#f59e0b' }} />
+          <span>Option Chain</span>
+        </button>
+
+        <button
+          onClick={handleQuickGoogle}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+            padding: '4px 8px',
+            backgroundColor: 'var(--bg-tertiary)',
+            borderRadius: 'var(--radius-sm)',
+            fontSize: '11px',
+            color: 'var(--text-secondary)',
+            whiteSpace: 'nowrap'
+          }}
+        >
+          <Globe size={12} style={{ color: '#3b82f6' }} />
+          <span>Open Google</span>
+        </button>
+
         <button
           onClick={handleQuickSummarize}
           style={{

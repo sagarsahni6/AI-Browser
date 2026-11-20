@@ -65,6 +65,8 @@ export interface ElectronAPI {
   // Assistant & Chat
   sendChatMessage: (message: string, context?: Record<string, unknown>) => Promise<string>;
   onChatStream: (callback: (chunk: string) => void) => () => void;
+  stopAssistant: () => Promise<boolean>;
+  onChatAction: (callback: (data: { action: string; parameters?: any; status: string; result?: any }) => void) => () => void;
 }
 
 declare global {

@@ -85,6 +85,9 @@ export class ProcessManager extends EventEmitter {
       SECRET_TOKEN: this.secretToken,
       NVIDIA_API_KEY: storedApiKey,
       PYTHONUNBUFFERED: '1',
+      PYTHONIOENCODING: 'utf-8',
+      PYTHONUTF8: '1',
+      PYTHONLEGACYWINDOWSSTDIO: '0',
       PYTHONPATH: `${rootDir};${path.join(rootDir, 'backend')}`
     };
 

@@ -54,6 +54,10 @@ interface BrowserStore {
   capturePage: () => Promise<string>;
   inspectPage: () => Promise<PageObservation>;
   sendChatMessage: (content: string) => Promise<void>;
+  stopAssistant: () => Promise<void>;
+  isAgentRunning: boolean;
+  activeAction: { action: string; parameters?: any; status: string; result?: any } | null;
+  setActiveAction: (action: { action: string; parameters?: any; status: string; result?: any } | null) => void;
 
   // History & Bookmarks & Downloads
   refreshBookmarks: () => Promise<void>;
@@ -121,6 +125,15 @@ export const useBrowserStore = create<BrowserStore>((set, get) => ({
   history: [],
   downloads: [],
   isCurrentPageBookmarked: false,
+  isAgentRunning: false,
+  activeAction: null,
+  setActiveAction: (action) => set({ activeAction: action }),
+  stopAssistant: async () => {
+    if (window.electronAPI?.stopAssistant) {
+      await window.electronAPI.stopAssistant();
+    }
+    set({ isAgentRunning: false, activeAction: null });
+  },
 
   setTheme: (theme: 'light' | 'dark') => {
     if (typeof window !== 'undefined' && window.localStorage) {
@@ -271,18 +284,24 @@ export const useBrowserStore = create<BrowserStore>((set, get) => ({
         timestamp: Date.now()
       };
       get().addChatMessage(botMsg);
-      const reply = await window.electronAPI.sendChatMessage(content, {
-        tabId: get().activeTabId,
-        url: get().activeTab?.url
-      });
-      set(state => {
-        const msgs = [...state.chatMessages];
-        const last = msgs[msgs.length - 1];
-        if (last && last.id === botMsg.id) {
-          msgs[msgs.length - 1] = { ...last, content: reply || last.content };
-        }
-        return { chatMessages: msgs };
-      });
+      set({ isAgentRunning: true });
+
+      try {
+        const reply = await window.electronAPI.sendChatMessage(content, {
+          tabId: get().activeTabId,
+          url: get().activeTab?.url
+        });
+        set(state => {
+          const msgs = [...state.chatMessages];
+          const last = msgs[msgs.length - 1];
+          if (last && last.id === botMsg.id) {
+            msgs[msgs.length - 1] = { ...last, content: reply || last.content };
+          }
+          return { chatMessages: msgs };
+        });
+      } finally {
+        set({ isAgentRunning: false, activeAction: null });
+      }
     }
   },
 

@@ -61,9 +61,20 @@ export function setupIpcHandlers(deps: {
     }
   });
 
+  // Forward AI chat actions to all panel views
+  rpcClient.on('notification:chat:action', (params: any) => {
+    broadcastToPanels(IPC_CHANNELS.CHAT_ACTION_UPDATE, params);
+  });
+
   // Register JSON-RPC methods callable by Python process
   rpcClient.registerMethod('browser.get_tabs', async () => {
     return tabManager.getTabs();
+  });
+
+  rpcClient.registerMethod('browser.evaluate_js', async (params: { script: string }) => {
+    const active = tabManager.getActiveTab();
+    if (!active) return null;
+    return await active.view.webContents.executeJavaScript(params.script);
   });
 
   rpcClient.registerMethod('browser.create_tab', async (params: { url?: string; is_private?: boolean }) => {
@@ -242,6 +253,17 @@ export function setupIpcHandlers(deps: {
 
   ipcMain.handle(IPC_CHANNELS.INSPECT_PAGE, async () => {
     return await tabManager.inspectActivePage();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.STOP_ASSISTANT, async () => {
+    if (processManager.getStatus().online) {
+      try {
+        return await rpcClient.call('assistant.stop', {});
+      } catch (e) {
+        return false;
+      }
+    }
+    return false;
   });
 
   ipcMain.handle(IPC_CHANNELS.SEND_CHAT_MESSAGE, async (_event, { message, context }) => {

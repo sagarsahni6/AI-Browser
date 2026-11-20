@@ -165,5 +165,72 @@ BROWSER_TOOLS: List[Dict[str, Any]] = [
                 "required": ["filename", "headers", "rows"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "evaluate_javascript",
+            "description": "Execute JavaScript directly in the active browser page to inspect window state, extract dynamic DOM tables, read option chain values, or interact with web elements.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "script": {
+                        "type": "string",
+                        "description": "The JavaScript code to execute in the page context."
+                    }
+                },
+                "required": ["script"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "extract_table_data",
+            "description": "Automatically extract structured tabular data from the active webpage, such as Option Chain strikes, call/put prices, OI, or financial grids.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "selector": {
+                        "type": "string",
+                        "description": "Optional CSS selector targeting a specific table element (e.g. 'table', '.option-chain-table')."
+                    }
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "inspect_visual_chart",
+            "description": "Capture the viewport and analyze HTML5 canvas/WebGL charts (like TradingView) with a high-capacity Vision-Language Model to identify price trends, timeframe, indicators, or coordinates of buttons/canvas elements.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question": {
+                        "type": "string",
+                        "description": "What specific chart feature, timeframe, price action, or element coordinate to analyze."
+                    }
+                },
+                "required": ["question"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "press_hotkey",
+            "description": "Send a keyboard key or hotkey to the active page (e.g. 'Enter', 'Escape', 'ArrowDown').",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "key": {
+                        "type": "string",
+                        "description": "The key to press (e.g. 'Enter', 'Escape', 'Tab', 'Space')."
+                    }
+                },
+                "required": ["key"]
+            }
+        }
     }
 ]

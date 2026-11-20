@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     NVIDIA_API_KEY: Optional[str] = None
     NVIDIA_MODEL: str = "nvidia/nemotron-3.5-lightning-30b-a3b"
     NVIDIA_VISION_MODEL: str = "nvidia/nemotron-3.5-super-vl-120b-a12b"
+    NVIDIA_REASONING_MODEL: str = "mistralai/mistral-large-4-1t-a52b"
 
     # OpenAI Fallback
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
