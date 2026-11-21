@@ -34,6 +34,25 @@ export const ApprovalDialog: React.FC<ApprovalDialogProps> = ({
     sanitizedParams.text = '•••••••• (Masked for security)';
   }
 
+  // Risk Score Meter calculation
+  const normalizedReason = (reason || '').toUpperCase();
+  const normalizedTitle = (actionTitle || '').toUpperCase();
+  const rawTier = String(parameters?.tier || parameters?.risk_tier || '').toUpperCase();
+
+  let tier: 'RED TIER' | 'YELLOW TIER' | 'GREEN TIER' = 'GREEN TIER';
+  let percentage = 20;
+  let tierColor = 'var(--success, #10b981)';
+
+  if (rawTier.includes('RED') || normalizedReason.includes('RED TIER') || normalizedTitle.includes('RED TIER')) {
+    tier = 'RED TIER';
+    percentage = 100;
+    tierColor = 'var(--error, #ef4444)';
+  } else if (rawTier.includes('YELLOW') || normalizedReason.includes('YELLOW TIER') || normalizedTitle.includes('YELLOW TIER')) {
+    tier = 'YELLOW TIER';
+    percentage = 40;
+    tierColor = 'var(--warning, #f59e0b)';
+  }
+
   return (
     <div className={styles.backdrop} onClick={(e) => {
       if (e.target === e.currentTarget) onReject();
@@ -54,6 +73,25 @@ export const ApprovalDialog: React.FC<ApprovalDialogProps> = ({
         <div className={styles.body}>
           <div className={styles.reasonBox}>
             {reason}
+          </div>
+
+          {/* Labeled Color-Coded Risk Score Meter */}
+          <div style={{ marginBottom: '12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px', fontSize: '11px', fontWeight: 600 }}>
+              <span style={{ color: 'var(--text-secondary)' }}>Risk Score Assessment</span>
+              <span style={{ color: tierColor, fontWeight: 700, letterSpacing: '0.5px' }}>{tier} ({percentage}%)</span>
+            </div>
+            <div style={{ width: '100%', height: '6px', backgroundColor: 'var(--bg-tertiary, #e2e8f0)', borderRadius: '9999px', overflow: 'hidden' }}>
+              <div
+                style={{
+                  width: `${percentage}%`,
+                  height: '100%',
+                  backgroundColor: tierColor,
+                  borderRadius: '9999px',
+                  transition: 'width 0.3s ease, background-color 0.3s ease'
+                }}
+              />
+            </div>
           </div>
 
           <div className={styles.detailsList}>

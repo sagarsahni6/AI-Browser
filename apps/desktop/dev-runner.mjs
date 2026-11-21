@@ -1,5 +1,5 @@
 import { createServer } from 'vite';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import electron from 'electron';
@@ -7,7 +7,32 @@ import * as esbuild from 'esbuild';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+function freePortIfInUse(port) {
+  try {
+    if (process.platform === 'win32') {
+      const output = execSync(`netstat -ano -p tcp | findstr :${port}`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] });
+      const lines = output.trim().split('\n');
+      for (const line of lines) {
+        const parts = line.trim().split(/\s+/);
+        const state = parts[3];
+        const pid = parts[parts.length - 1];
+        if (state === 'LISTENING' && pid && pid !== process.pid.toString()) {
+          console.log(`[dev-runner] Port ${port} is occupied by PID ${pid}. Freeing port...`);
+          try {
+            execSync(`taskkill /F /PID ${pid}`, { stdio: 'ignore' });
+          } catch {}
+        }
+      }
+    }
+  } catch {
+    // Port not in use or error querying
+  }
+}
+
 async function start() {
+  // Ensure port 5173 is free before launching Vite
+  freePortIfInUse(5173);
+
   // 1. Start Vite dev server
   const server = await createServer({
     configFile: path.resolve(__dirname, 'vite.config.ts'),
@@ -54,9 +79,41 @@ async function start() {
     }
   });
 
+  let isCleanedUp = false;
+  const cleanup = () => {
+    if (isCleanedUp) return;
+    isCleanedUp = true;
+    try {
+      server.close();
+    } catch {}
+    try {
+      if (electronProcess && !electronProcess.killed && electronProcess.pid) {
+        if (process.platform === 'win32') {
+          execSync(`taskkill /F /T /PID ${electronProcess.pid}`, { stdio: 'ignore' });
+        } else {
+          electronProcess.kill('SIGTERM');
+        }
+      }
+    } catch {}
+  };
+
   electronProcess.on('close', () => {
-    server.close();
+    cleanup();
     process.exit();
+  });
+
+  process.on('SIGINT', () => {
+    cleanup();
+    process.exit(0);
+  });
+
+  process.on('SIGTERM', () => {
+    cleanup();
+    process.exit(0);
+  });
+
+  process.on('exit', () => {
+    cleanup();
   });
 }
 

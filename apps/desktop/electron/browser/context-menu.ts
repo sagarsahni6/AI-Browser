@@ -11,16 +11,17 @@ export function attachContextMenu(
     const menu = new Menu();
 
     // Navigation items
+    const hasNavHistory = Boolean(wc.navigationHistory);
     menu.append(new MenuItem({
       label: 'Back',
-      enabled: wc.navigationHistory?.canGoBack ? wc.navigationHistory.canGoBack() : wc.canGoBack(),
-      click: () => wc.navigationHistory?.canGoBack ? wc.navigationHistory.goBack() : wc.goBack(),
+      enabled: hasNavHistory ? wc.navigationHistory.canGoBack() : wc.canGoBack(),
+      click: () => (hasNavHistory ? wc.navigationHistory.goBack() : wc.goBack()),
     }));
 
     menu.append(new MenuItem({
       label: 'Forward',
-      enabled: wc.navigationHistory?.canGoForward ? wc.navigationHistory.canGoForward() : wc.canGoForward(),
-      click: () => wc.navigationHistory?.canGoForward ? wc.navigationHistory.goForward() : wc.goForward(),
+      enabled: hasNavHistory ? wc.navigationHistory.canGoForward() : wc.canGoForward(),
+      click: () => (hasNavHistory ? wc.navigationHistory.goForward() : wc.goForward()),
     }));
 
     menu.append(new MenuItem({

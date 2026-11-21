@@ -230,3 +230,66 @@
   border-radius: var(--radius-sm);
   transition: background-color var(--transition-fast), color var(--transition-fast);
 }
+
+/* COMET ReAct Trace */
+.reactTrace {
+  margin: 4px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface-secondary);
+}
+
+.reactTraceHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.reactTraceHeader:hover {
+  background: var(--surface-hover);
+}
+
+.reactTraceBody {
+  padding: 8px 10px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.reactThought {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0 0 6px;
+  font-family: inherit;
+}
+
+.reactPlan {
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.reactPlan pre {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: 11px;
+}
+
+/* COMET Mode Badge */
+.modeBadge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: white;
+  text-transform: uppercase;
+}

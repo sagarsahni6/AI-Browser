@@ -14,10 +14,12 @@ export interface BrowserTab {
 
 export interface InteractiveElement {
   id: string;
+  selector: string;
   tagName: string;
   role?: string;
   label?: string;
   text?: string;
+  disabled?: boolean;
   bounds: {
     x: number;
     y: number;
@@ -30,6 +32,7 @@ export interface PageObservation {
   tabId: string;
   url: string;
   title: string;
+  metaDescription?: string;
   viewport: {
     width: number;
     height: number;

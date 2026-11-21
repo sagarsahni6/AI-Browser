@@ -326,5 +326,280 @@ BROWSER_TOOLS: List[Dict[str, Any]] = [
                 "required": ["question"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "click_selector",
+            "description": "Click an element matching a CSS selector or text target (e.g. 'button.submit', '#login-btn', 'text=Sign In').",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "selector": {
+                        "type": "string",
+                        "description": "CSS selector or text selector (e.g. 'button[type=\"submit\"]', 'text=Submit', '#search-box')."
+                    }
+                },
+                "required": ["selector"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "fill_selector",
+            "description": "Target an input, textarea or search box by CSS or text selector, focus it, and type text into it.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "selector": {
+                        "type": "string",
+                        "description": "CSS selector targeting the input element (e.g. 'input[name=\"q\"]', '#username')."
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "The text to type into the targeted input field."
+                    }
+                },
+                "required": ["selector", "text"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "wait_for_selector",
+            "description": "Wait until an element matching the given CSS selector is visible and present in the DOM.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "selector": {
+                        "type": "string",
+                        "description": "CSS selector to wait for (e.g. '.search-results', '#success-msg')."
+                    },
+                    "timeout_ms": {
+                        "type": "integer",
+                        "description": "Maximum time to wait in milliseconds (default: 5000)."
+                    }
+                },
+                "required": ["selector"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "detect_forms",
+            "description": "Scan the active page and identify all interactive forms, input fields, labels, input types, and values.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_accessibility_tree",
+            "description": "Retrieve the full semantic accessibility tree of the active webpage via CDP.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_pdf",
+            "description": "Parse local or remote PDF document with page-level text extraction and metadata.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path_or_url": {
+                        "type": "string",
+                        "description": "Local file path (e.g. 'C:/docs/paper.pdf') or remote URL to the PDF document."
+                    },
+                    "max_pages": {
+                        "type": "integer",
+                        "description": "Maximum number of pages to parse (default: 50)."
+                    }
+                },
+                "required": ["path_or_url"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "summarize_pdf",
+            "description": "Generate page-cited summary and key insights from a PDF document.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path_or_url": {
+                        "type": "string",
+                        "description": "Local file path or remote URL to the PDF."
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Optional specific question or research focus for the summary."
+                    }
+                },
+                "required": ["path_or_url"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "extract_table_data",
+            "description": "Extract structured tables or repeating records from the active webpage, supporting pagination across multiple pages.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "selector": {
+                        "type": "string",
+                        "description": "Optional CSS selector targeting the table or records container."
+                    },
+                    "pagination_next_selector": {
+                        "type": "string",
+                        "description": "Optional CSS selector for the 'Next' page button to scrape across pages."
+                    },
+                    "max_pages": {
+                        "type": "integer",
+                        "description": "Maximum pages to paginate through (default: 1)."
+                    }
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "export_data",
+            "description": "Export structured dataset records to JSON or CSV format.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "data": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                        "description": "List of record dictionaries to export."
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": ["json", "csv"],
+                        "description": "Target export format (default: 'json')."
+                    },
+                    "filename": {
+                        "type": "string",
+                        "description": "Optional file name."
+                    }
+                },
+                "required": ["data"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "synthesize_research",
+            "description": "Perform deep research on a topic across multi-angle queries and sources, generating a cited Markdown report.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": "The research topic or question to investigate."
+                    },
+                    "sources": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional explicit URLs to synthesize."
+                    },
+                    "depth": {
+                        "type": "string",
+                        "enum": ["quick", "deep"],
+                        "description": "Research depth (default: 'quick')."
+                    }
+                },
+                "required": ["topic"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "desktop_click",
+            "description": "Click at specific Windows desktop screen coordinates.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "x": {"type": "integer", "description": "X screen coordinate in pixels."},
+                    "y": {"type": "integer", "description": "Y screen coordinate in pixels."},
+                    "button": {"type": "string", "enum": ["left", "right"], "description": "Mouse button (default: 'left')."}
+                },
+                "required": ["x", "y"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "desktop_type",
+            "description": "Type text into the currently active Windows application.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "Text to type into active window."}
+                },
+                "required": ["text"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "desktop_hotkey",
+            "description": "Send a keyboard hotkey combination to Windows (e.g. ['ctrl', 'c'], ['alt', 'tab']).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "keys": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Key sequence to press concurrently."
+                    }
+                },
+                "required": ["keys"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "desktop_capture_screen",
+            "description": "Capture the primary Windows desktop screen.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "desktop_launch_app",
+            "description": "Launch a desktop application executable.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "app_name": {"type": "string", "description": "Application executable path or system command (e.g. 'notepad.exe', 'calc.exe')."},
+                    "args": {"type": "array", "items": {"type": "string"}, "description": "Optional CLI arguments."}
+                },
+                "required": ["app_name"]
+            }
+        }
     }
 ]

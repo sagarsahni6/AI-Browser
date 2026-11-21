@@ -123,10 +123,10 @@ const PROVIDERS: ProviderConfig[] = [
 export const SettingsView: React.FC = () => {
   const { clearHistory, theme, setTheme } = useBrowserStore();
 
-  const [activeTab, setActiveTab] = useState<'general' | 'ai' | 'privacy' | 'about'>('ai');
+  const [activeTab, setActiveTab] = useState<'general' | 'ai' | 'privacy' | 'about' | 'memory' | 'monitors'>('ai');
   const [selectedProviderId, setSelectedProviderId] = useState('nvidia_nim');
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({
-    NVIDIA_API_KEY: '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',
+    NVIDIA_API_KEY: '',
     ANTHROPIC_API_KEY: '',
     GOOGLE_API_KEY: '',
     GROQ_API_KEY: '',
@@ -137,6 +137,41 @@ export const SettingsView: React.FC = () => {
   const [searchEngine, setSearchEngine] = useState('duckduckgo');
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [testingConnection, setTestingConnection] = useState(false);
+
+  // Memory & Monitors state
+  const [memories, setMemories] = useState<any[]>([]);
+  const [newMemKey, setNewMemKey] = useState('');
+  const [newMemVal, setNewMemVal] = useState('');
+  const [monitors, setMonitors] = useState<any[]>([]);
+  const [newMonName, setNewMonName] = useState('');
+  const [newMonUrl, setNewMonUrl] = useState('');
+
+  const loadMemories = async () => {
+    if (window.electronAPI?.getAllMemories) {
+      try {
+        const list = await window.electronAPI.getAllMemories();
+        setMemories(list || []);
+      } catch (err) {
+        console.error('Failed to load memories:', err);
+      }
+    }
+  };
+
+  const loadMonitors = async () => {
+    if (window.electronAPI?.listMonitors) {
+      try {
+        const list = await window.electronAPI.listMonitors();
+        setMonitors(list || []);
+      } catch (err) {
+        console.error('Failed to load monitors:', err);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'memory') loadMemories();
+    if (activeTab === 'monitors') loadMonitors();
+  }, [activeTab]);
 
   const curProvider = PROVIDERS.find(p => p.id === selectedProviderId) || PROVIDERS[0];
 
@@ -203,6 +238,8 @@ export const SettingsView: React.FC = () => {
       }}>
         {[
           { id: 'ai' as const, label: 'AI Providers', icon: Cpu },
+          { id: 'memory' as const, label: 'Memory & Context', icon: Sparkles },
+          { id: 'monitors' as const, label: 'Web Monitors', icon: Globe },
           { id: 'general' as const, label: 'General', icon: Sliders },
           { id: 'privacy' as const, label: 'Privacy & Data', icon: Shield },
           { id: 'about' as const, label: 'About', icon: Globe },
@@ -511,6 +548,267 @@ export const SettingsView: React.FC = () => {
               >
                 <Trash2 size={12} /> Clear Browsing History
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* ABOUT */}
+        {activeTab === 'memory' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+              Persistent AI Memory & Context
+            </div>
+            <div style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>
+              Preferences and context saved here are automatically injected into AI prompts across browsing sessions.
+            </div>
+
+            {/* Add Memory Form */}
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!newMemKey.trim() || !newMemVal.trim() || !window.electronAPI?.remember) return;
+                await window.electronAPI.remember({ key: newMemKey.trim(), value: newMemVal.trim() });
+                setNewMemKey('');
+                setNewMemVal('');
+                loadMemories();
+                setStatusMessage({ text: 'Memory saved!', type: 'success' });
+              }}
+              style={{
+                display: 'flex',
+                gap: '6px',
+                padding: '8px',
+                backgroundColor: 'var(--bg-tertiary)',
+                borderRadius: 'var(--radius-sm)'
+              }}
+            >
+              <input
+                type="text"
+                placeholder="Key (e.g. favorite_export)"
+                value={newMemKey}
+                onChange={(e) => setNewMemKey(e.target.value)}
+                style={{
+                  flex: 1,
+                  padding: '5px 8px',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--border-subtle)',
+                  backgroundColor: 'var(--bg-secondary)',
+                  color: 'var(--text-primary)',
+                  fontSize: '11px'
+                }}
+                required
+              />
+              <input
+                type="text"
+                placeholder="Value (e.g. CSV with quotes)"
+                value={newMemVal}
+                onChange={(e) => setNewMemVal(e.target.value)}
+                style={{
+                  flex: 2,
+                  padding: '5px 8px',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--border-subtle)',
+                  backgroundColor: 'var(--bg-secondary)',
+                  color: 'var(--text-primary)',
+                  fontSize: '11px'
+                }}
+                required
+              />
+              <button
+                type="submit"
+                style={{
+                  padding: '5px 12px',
+                  backgroundColor: 'var(--accent-primary)',
+                  color: '#fff',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                Save
+              </button>
+            </form>
+
+            {/* Memories List */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {memories.length === 0 ? (
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>No memories saved yet.</div>
+              ) : (
+                memories.map((m) => (
+                  <div
+                    key={m.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '6px 10px',
+                      backgroundColor: 'var(--bg-tertiary)',
+                      borderRadius: 'var(--radius-sm)'
+                    }}
+                  >
+                    <div>
+                      <span style={{ fontWeight: 600, color: 'var(--accent-primary)', marginRight: '6px' }}>{m.key}:</span>
+                      <span style={{ color: 'var(--text-secondary)' }}>{m.value}</span>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        if (window.electronAPI?.forgetMemory) {
+                          await window.electronAPI.forgetMemory(m.id);
+                          loadMemories();
+                        }
+                      }}
+                      style={{ color: 'var(--text-muted)', background: 'transparent', border: 'none', cursor: 'pointer' }}
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* WEBSITE MONITORS */}
+        {activeTab === 'monitors' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+              Scheduled Website Monitors
+            </div>
+            <div style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>
+              Tracks webpages and alerts you when content changes occur.
+            </div>
+
+            {/* Add Monitor Form */}
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!newMonName.trim() || !newMonUrl.trim() || !window.electronAPI?.createMonitor) return;
+                await window.electronAPI.createMonitor({ name: newMonName.trim(), url: newMonUrl.trim() });
+                setNewMonName('');
+                setNewMonUrl('');
+                loadMonitors();
+                setStatusMessage({ text: 'Monitor created and baseline established!', type: 'success' });
+              }}
+              style={{
+                display: 'flex',
+                gap: '6px',
+                padding: '8px',
+                backgroundColor: 'var(--bg-tertiary)',
+                borderRadius: 'var(--radius-sm)'
+              }}
+            >
+              <input
+                type="text"
+                placeholder="Name (e.g. Stock Alert)"
+                value={newMonName}
+                onChange={(e) => setNewMonName(e.target.value)}
+                style={{
+                  flex: 1,
+                  padding: '5px 8px',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--border-subtle)',
+                  backgroundColor: 'var(--bg-secondary)',
+                  color: 'var(--text-primary)',
+                  fontSize: '11px'
+                }}
+                required
+              />
+              <input
+                type="url"
+                placeholder="https://example.com/item"
+                value={newMonUrl}
+                onChange={(e) => setNewMonUrl(e.target.value)}
+                style={{
+                  flex: 2,
+                  padding: '5px 8px',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--border-subtle)',
+                  backgroundColor: 'var(--bg-secondary)',
+                  color: 'var(--text-primary)',
+                  fontSize: '11px'
+                }}
+                required
+              />
+              <button
+                type="submit"
+                style={{
+                  padding: '5px 12px',
+                  backgroundColor: 'var(--accent-primary)',
+                  color: '#fff',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                Add Monitor
+              </button>
+            </form>
+
+            {/* Monitors List */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {monitors.length === 0 ? (
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>No website monitors active.</div>
+              ) : (
+                monitors.map((mon) => (
+                  <div
+                    key={mon.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '8px 10px',
+                      backgroundColor: 'var(--bg-tertiary)',
+                      borderRadius: 'var(--radius-sm)'
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{mon.name}</div>
+                      <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{mon.url}</div>
+                      <div style={{ fontSize: '9.5px', color: mon.status === 'alert' ? 'var(--error)' : 'var(--success)' }}>
+                        Status: {mon.status} &bull; Last check: {mon.last_check_at ? new Date(mon.last_check_at * 1000).toLocaleTimeString() : 'Never'}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      <button
+                        onClick={async () => {
+                          if (window.electronAPI?.checkMonitorNow) {
+                            const res = await window.electronAPI.checkMonitorNow(mon.id);
+                            loadMonitors();
+                            setStatusMessage({
+                              text: res.changed ? 'Change detected on website!' : 'No changes detected.',
+                              type: res.changed ? 'error' : 'success'
+                            });
+                          }
+                        }}
+                        style={{
+                          fontSize: '10px',
+                          padding: '3px 6px',
+                          borderRadius: 'var(--radius-sm)',
+                          backgroundColor: 'var(--bg-hover)',
+                          color: 'var(--text-primary)',
+                          border: 'none',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Check Now
+                      </button>
+                      <button
+                        onClick={async () => {
+                          if (window.electronAPI?.deleteMonitor) {
+                            await window.electronAPI.deleteMonitor(mon.id);
+                            loadMonitors();
+                          }
+                        }}
+                        style={{ color: 'var(--text-muted)', background: 'transparent', border: 'none', cursor: 'pointer' }}
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}

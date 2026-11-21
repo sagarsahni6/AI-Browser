@@ -17,9 +17,9 @@ export class LayoutManager {
 
   private state: LayoutState = {
     toolbarHeight: 76,
-    sidebarWidth: 220,
-    assistantWidth: 360,
-    sidebarOpen: false,
+    sidebarWidth: 260,
+    assistantWidth: 380,
+    sidebarOpen: true,
     assistantOpen: true,
   };
 
@@ -51,8 +51,20 @@ export class LayoutManager {
     return this.state.sidebarOpen;
   }
 
+  public setSidebarOpen(open: boolean): boolean {
+    this.state.sidebarOpen = open;
+    this.updateBounds();
+    return this.state.sidebarOpen;
+  }
+
   public toggleAssistant(): boolean {
     this.state.assistantOpen = !this.state.assistantOpen;
+    this.updateBounds();
+    return this.state.assistantOpen;
+  }
+
+  public setAssistantOpen(open: boolean): boolean {
+    this.state.assistantOpen = open;
     this.updateBounds();
     return this.state.assistantOpen;
   }

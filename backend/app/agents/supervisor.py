@@ -1,6 +1,6 @@
 import logging
 import asyncio
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Set
 from backend.app.agents.models import TaskPlan, TaskStep, StepStatus
 from backend.app.agents.planner import PlannerAgent
 from backend.app.agents.browser_agent import BrowserAgent
@@ -16,17 +16,50 @@ logger = logging.getLogger("supervisor_agent")
 class SupervisorAgent:
     """
     Central Coordinator of the Multi-Agent System.
-    Orchestrates the complete lifecycle of an autonomous task:
-    1. Plans task via PlannerAgent
-    2. Routes each step to specialist agents (BrowserAgent, ResearcherAgent, DataAgent, VerifierAgent)
-    3. Handles approvals and safety policy checks
-    4. Records step-by-step progress and events to SQLite
-    5. Validates task completion via VerifierAgent
+    Orchestrates the complete lifecycle of an autonomous task with:
+    1. Reactive step execution and dynamic re-planning on unexpected page states
+    2. Cooperative cancellation and pause/resume checkpoints
+    3. Live progress streaming via the JSON-RPC bridge
+    4. Strict security approval gates
+    5. Final post-action verification via VerifierAgent
     """
+    _cancelled_tasks: Set[str] = set()
+    _paused_tasks: Set[str] = set()
 
-    @staticmethod
-    async def run_task(task_id: str):
+    @classmethod
+    def cancel_task(cls, task_id: str):
+        logger.info(f"Cancellation requested for task {task_id}")
+        cls._cancelled_tasks.add(task_id)
+        cls._paused_tasks.discard(task_id)
+
+    @classmethod
+    def pause_task(cls, task_id: str):
+        logger.info(f"Pause requested for task {task_id}")
+        cls._paused_tasks.add(task_id)
+
+    @classmethod
+    def resume_task(cls, task_id: str):
+        logger.info(f"Resume requested for task {task_id}")
+        cls._paused_tasks.discard(task_id)
+
+    @classmethod
+    def is_cancelled(cls, task_id: str) -> bool:
+        return task_id in cls._cancelled_tasks
+
+    @classmethod
+    def is_paused(cls, task_id: str) -> bool:
+        return task_id in cls._paused_tasks
+
+    @classmethod
+    def _cleanup_task(cls, task_id: str):
+        cls._cancelled_tasks.discard(task_id)
+        cls._paused_tasks.discard(task_id)
+
+    @classmethod
+    async def run_task(cls, task_id: str):
         logger.info(f"SupervisorAgent starting task {task_id}")
+        cls._cleanup_task(task_id)
+
         async with AsyncSessionLocal() as session:
             repo = Repository(session)
             task = await repo.get_task(task_id)
@@ -36,6 +69,7 @@ class SupervisorAgent:
 
             await repo.update_task_status(task_id, status="running")
 
+        plan: Optional[TaskPlan] = None
         try:
             # 1. Observe current browser state
             current_url = "about:blank"
@@ -49,7 +83,7 @@ class SupervisorAgent:
             # 2. Planning Phase
             plan: TaskPlan = await PlannerAgent.create_plan(task_id, task.prompt, current_url)
 
-            # Record plan steps in database
+            # Record initial plan steps in database
             async with AsyncSessionLocal() as session:
                 repo = Repository(session)
                 for step in plan.steps:
@@ -61,24 +95,80 @@ class SupervisorAgent:
                         parameters=step.parameters
                     )
 
-            # 3. Execution Phase: step-by-step dispatch to specialist agents
+            # 3. Execution Phase: dynamic reactive step queue
+            remaining_steps: List[TaskStep] = list(plan.steps)
+            step_retries: Dict[int, int] = {}
             step_results = []
-            final_report = "Task completed successfully."
+            max_retries_per_step = 3
 
-            for step in plan.steps:
+            while remaining_steps:
+                # A. Check cooperative cancellation
+                if cls.is_cancelled(task_id):
+                    logger.info(f"Task {task_id} aborted by user cancellation")
+                    async with AsyncSessionLocal() as session:
+                        repo = Repository(session)
+                        await repo.update_task_status(task_id, status="cancelled", error="Cancelled by user")
+                    try:
+                        bridge.notify("task.step_updated", {
+                            "task_id": task_id,
+                            "status": "cancelled",
+                            "message": "Task cancelled by user",
+                            "total_steps": len(plan.steps) if (plan and hasattr(plan, "steps")) else 0
+                        })
+                    except Exception:
+                        pass
+                    cls._cleanup_task(task_id)
+                    return
+
+                # B. Check cooperative pause
+                if cls.is_paused(task_id):
+                    logger.info(f"Task {task_id} is paused; waiting for resume...")
+                    async with AsyncSessionLocal() as session:
+                        repo = Repository(session)
+                        await repo.update_task_status(task_id, status="paused")
+                    try:
+                        bridge.notify("task.step_updated", {
+                            "task_id": task_id,
+                            "status": "paused",
+                            "message": "Task paused",
+                            "total_steps": len(plan.steps) if (plan and hasattr(plan, "steps")) else 0
+                        })
+                    except Exception:
+                        pass
+
+                    while cls.is_paused(task_id):
+                        if cls.is_cancelled(task_id):
+                            break
+                        await asyncio.sleep(0.4)
+
+                    if cls.is_cancelled(task_id):
+                        continue
+
+                    # Resumed
+                    async with AsyncSessionLocal() as session:
+                        repo = Repository(session)
+                        await repo.update_task_status(task_id, status="running")
+
+                # C. Pop next step from queue
+                step = remaining_steps.pop(0)
                 logger.info(f"Executing Step {step.id}: [{step.agent}] {step.action}")
 
-                # Notify Electron / UI of active action
+                # Notify UI of step start
                 try:
-                    bridge.notify("browser.action_started", {
+                    bridge.notify("task.step_updated", {
+                        "task_id": task_id,
+                        "step_id": step.id,
+                        "step_number": step.id,
+                        "total_steps": len(plan.steps) if (plan and hasattr(plan, "steps")) else 0,
+                        "status": "running",
+                        "description": step.description,
                         "action": step.action,
-                        "parameters": step.parameters,
-                        "description": step.description
+                        "parameters": step.parameters
                     })
                 except Exception:
                     pass
 
-                # Dispatch to specialist agent
+                # D. Dispatch step to specialist agent
                 result: Dict[str, Any] = {}
                 if step.agent == "browser":
                     result = await BrowserAgent.execute_step(step.action, step.parameters)
@@ -92,22 +182,22 @@ class SupervisorAgent:
                     result = await BrowserAgent.execute_step(step.action, step.parameters)
 
                 step_results.append(result)
+                step_status = result.get("status", "completed")
 
-                # Update step in DB
+                # E. Update step in DB
                 async with AsyncSessionLocal() as session:
                     repo = Repository(session)
-                    # Find step by number and update
                     db_steps = await repo.get_task_steps(task_id)
                     for ds in db_steps:
                         if ds.step_number == step.id:
                             await repo.update_step_status(
                                 ds.id,
-                                status=result.get("status", "completed"),
+                                status=step_status,
                                 result=result
                             )
 
-                # Check if approval required
-                if result.get("status") == "approval_required":
+                # F. Handle security approval requirement
+                if step_status == "approval_required":
                     logger.warning(f"Step {step.id} requires user approval: {result.get('reason')}")
                     async with AsyncSessionLocal() as session:
                         repo = Repository(session)
@@ -121,19 +211,83 @@ class SupervisorAgent:
                             parameters_json=json.dumps(step.parameters)
                         )
                     try:
-                        bridge.notify("browser.action_started", {
-                            "action": step.action,
-                            "parameters": {**step.parameters, "task_id": task_id},
+                        bridge.notify("task.step_updated", {
+                            "task_id": task_id,
+                            "step_id": step.id,
+                            "step_number": step.id,
+                            "total_steps": len(plan.steps) if (plan and hasattr(plan, "steps")) else 0,
                             "status": "approval_required",
-                            "result": result.get("reason")
+                            "reason": result.get("reason"),
+                            "action": step.action,
+                            "parameters": step.parameters
                         })
                     except Exception:
                         pass
                     return
 
-                # Check for critical errors
-                if result.get("status") == "error":
-                    logger.warning(f"Step {step.id} returned error: {result.get('error')}. Continuing with error recovery...")
+                # G. Reactive self-correction & dynamic re-planning on step error
+                if step_status == "error":
+                    retries = step_retries.get(step.id, 0)
+                    if retries < max_retries_per_step:
+                        step_retries[step.id] = retries + 1
+                        logger.warning(f"Step {step.id} failed ({result.get('error')}). Re-planning corrective steps (attempt {retries + 1}/{max_retries_per_step})...")
+
+                        # Inspect live browser state
+                        current_obs: Dict[str, Any] = {}
+                        try:
+                            current_obs = await bridge.call("browser.inspect", {}) or {}
+                        except Exception:
+                            pass
+
+                        # Ask PlannerAgent for corrective steps
+                        corrective_steps = await PlannerAgent.replan_subgoal(
+                            task_id=task_id,
+                            failed_step=step,
+                            error_context=str(result.get("error", "Action error")),
+                            current_obs=current_obs,
+                            remaining_steps=remaining_steps
+                        )
+
+                        # Insert corrective steps at the head of the queue
+                        if corrective_steps:
+                            # Save corrective steps to DB
+                            async with AsyncSessionLocal() as session:
+                                repo = Repository(session)
+                                for cs in corrective_steps:
+                                    await repo.add_task_step(
+                                        task_id=task_id,
+                                        step_number=cs.id,
+                                        description=f"[{cs.agent.upper()}] {cs.description}",
+                                        tool_name=cs.action,
+                                        parameters=cs.parameters
+                                    )
+                            remaining_steps = corrective_steps + remaining_steps
+                            try:
+                                bridge.notify("task.step_updated", {
+                                    "task_id": task_id,
+                                    "step_id": step.id,
+                                    "total_steps": len(plan.steps) if (plan and hasattr(plan, "steps")) else 0,
+                                    "status": "recovering",
+                                    "message": f"Self-correcting step failure (attempt {retries + 1})",
+                                    "error": result.get("error")
+                                })
+                            except Exception:
+                                pass
+                            continue
+
+                # Notify UI of completed step
+                try:
+                    bridge.notify("task.step_updated", {
+                        "task_id": task_id,
+                        "step_id": step.id,
+                        "step_number": step.id,
+                        "total_steps": len(plan.steps) if (plan and hasattr(plan, "steps")) else 0,
+                        "status": step_status,
+                        "description": step.description,
+                        "result": result
+                    })
+                except Exception:
+                    pass
 
                 # Small delay between actions for visual tracking and UI breathing room
                 await asyncio.sleep(0.3)
@@ -142,15 +296,35 @@ class SupervisorAgent:
             verify_res = await VerifierAgent.execute_step("verify_task", {})
 
             # 5. Mark task completed
-            final_report = f"Task completed: {len(plan.steps)} steps executed successfully. Verified state: {verify_res.get('url', 'done')}."
+            final_report = f"Task completed: {len(step_results)} steps executed successfully. Verified state: {verify_res.get('url', 'done')}."
             async with AsyncSessionLocal() as session:
                 repo = Repository(session)
                 await repo.update_task_status(task_id, status="completed", result=final_report)
 
             logger.info(f"Task {task_id} completed successfully")
+            try:
+                bridge.notify("task.step_updated", {
+                    "task_id": task_id,
+                    "status": "completed",
+                    "total_steps": len(plan.steps) if (plan and hasattr(plan, "steps")) else 0,
+                    "result": final_report
+                })
+            except Exception:
+                pass
 
         except Exception as e:
             logger.error(f"SupervisorAgent failed task {task_id}: {e}")
             async with AsyncSessionLocal() as session:
                 repo = Repository(session)
                 await repo.update_task_status(task_id, status="failed", error=str(e))
+            try:
+                bridge.notify("task.step_updated", {
+                    "task_id": task_id,
+                    "status": "failed",
+                    "total_steps": len(plan.steps) if (plan and hasattr(plan, "steps")) else 0,
+                    "error": str(e)
+                })
+            except Exception:
+                pass
+        finally:
+            cls._cleanup_task(task_id)

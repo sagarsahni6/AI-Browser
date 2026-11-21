@@ -17,6 +17,9 @@ import { useBrowserStore } from '../store/browser-store';
 import { SettingsView } from '../components/SettingsView';
 import { TaskPanel } from '../components/TaskPanel';
 import { CollectionsPanel } from '../components/CollectionsPanel';
+import { WorkflowPanel } from '../components/WorkflowPanel';
+import { ResearchPanel } from '../components/ResearchPanel';
+import { Workflow as WorkflowNavIcon, BookOpen } from 'lucide-react';
 import styles from './SidebarPanel.module.css';
 
 const cx = (...classes: (string | false | undefined | null)[]) => classes.filter(Boolean).join(' ');
@@ -53,6 +56,8 @@ export const SidebarPanel: React.FC = () => {
     { id: 'bookmarks' as const, icon: Bookmark, label: 'Bookmarks' },
     { id: 'downloads' as const, icon: Download, label: 'Downloads' },
     { id: 'collections' as const, icon: FolderGit2, label: 'Collections' },
+    { id: 'research' as const, icon: BookOpen, label: 'Research' },
+    { id: 'workflows' as const, icon: WorkflowNavIcon, label: 'Workflows' },
     { id: 'tasks' as const, icon: ListTodo, label: 'Agent Tasks' },
   ];
 
@@ -314,6 +319,16 @@ export const SidebarPanel: React.FC = () => {
         {/* COLLECTIONS TAB */}
         {sidebarActiveTab === 'collections' && (
           <CollectionsPanel />
+        )}
+
+        {/* RESEARCH TAB */}
+        {sidebarActiveTab === 'research' && (
+          <ResearchPanel />
+        )}
+
+        {/* WORKFLOWS TAB */}
+        {sidebarActiveTab === 'workflows' && (
+          <WorkflowPanel />
         )}
       </div>
 

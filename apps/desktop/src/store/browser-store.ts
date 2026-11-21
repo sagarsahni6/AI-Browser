@@ -14,7 +14,7 @@ interface BrowserStore {
   activeTabId: string;
   sidebarOpen: boolean;
   assistantOpen: boolean;
-  sidebarActiveTab: 'discover' | 'history' | 'bookmarks' | 'downloads' | 'collections' | 'tasks' | 'settings';
+  sidebarActiveTab: 'discover' | 'history' | 'bookmarks' | 'downloads' | 'collections' | 'workflows' | 'research' | 'tasks' | 'settings';
   backendStatus: { online: boolean; port?: number };
   activeTab: BrowserTab | null;
   chatMessages: ChatMessage[];
@@ -29,7 +29,7 @@ interface BrowserStore {
   // Actions
   setTabs: (tabs: BrowserTab[], activeTabId: string) => void;
   setSidebarOpen: (open: boolean) => void;
-  setSidebarActiveTab: (tab: 'discover' | 'history' | 'bookmarks' | 'downloads' | 'collections' | 'tasks' | 'settings') => void;
+  setSidebarActiveTab: (tab: 'discover' | 'history' | 'bookmarks' | 'downloads' | 'collections' | 'workflows' | 'research' | 'tasks' | 'settings') => void;
   setAssistantOpen: (open: boolean) => void;
   setBackendStatus: (status: { online: boolean; port?: number }) => void;
   addChatMessage: (msg: ChatMessage) => void;
@@ -54,11 +54,29 @@ interface BrowserStore {
   toggleAssistant: () => Promise<void>;
   capturePage: () => Promise<string>;
   inspectPage: () => Promise<PageObservation>;
-  sendChatMessage: (content: string) => Promise<void>;
+  sendChatMessage: (content: string, context?: Record<string, unknown>) => Promise<void>;
   stopAssistant: () => Promise<void>;
   isAgentRunning: boolean;
-  activeAction: { action: string; parameters?: any; status: string; result?: any } | null;
-  setActiveAction: (action: { action: string; parameters?: any; status: string; result?: any } | null) => void;
+  activeAction: {
+    action: string;
+    parameters?: any;
+    status: string;
+    result?: any;
+    step_number?: number;
+    total_steps?: number;
+    thought?: string;
+    plan?: any;
+  } | null;
+  setActiveAction: (action: {
+    action: string;
+    parameters?: any;
+    status: string;
+    result?: any;
+    step_number?: number;
+    total_steps?: number;
+    thought?: string;
+    plan?: any;
+  } | null) => void;
 
   // History & Bookmarks & Downloads
   refreshBookmarks: () => Promise<void>;
@@ -103,10 +121,12 @@ const themeChannel = typeof window !== 'undefined' && 'BroadcastChannel' in wind
   ? new BroadcastChannel('ai_browser_theme_sync')
   : null;
 
+const getApi = () => (typeof window !== 'undefined' ? window.electronAPI : undefined);
+
 export const useBrowserStore = create<BrowserStore>((set, get) => ({
   tabs: [],
   activeTabId: '',
-  sidebarOpen: false,
+  sidebarOpen: true,
   assistantOpen: true,
   sidebarActiveTab: 'discover',
   backendStatus: { online: false },
@@ -156,9 +176,27 @@ export const useBrowserStore = create<BrowserStore>((set, get) => ({
     set({ tabs, activeTabId, activeTab, isCurrentPageBookmarked: isBookmarked });
   },
 
-  setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
-  setSidebarActiveTab: (sidebarActiveTab) => set({ sidebarActiveTab, sidebarOpen: true }),
-  setAssistantOpen: (assistantOpen) => set({ assistantOpen }),
+  setSidebarOpen: (sidebarOpen) => {
+    const api = getApi();
+    if (api?.setSidebarOpen) {
+      api.setSidebarOpen(sidebarOpen);
+    }
+    set({ sidebarOpen });
+  },
+  setSidebarActiveTab: (sidebarActiveTab) => {
+    const api = getApi();
+    if (api?.setSidebarOpen) {
+      api.setSidebarOpen(true);
+    }
+    set({ sidebarActiveTab, sidebarOpen: true });
+  },
+  setAssistantOpen: (assistantOpen) => {
+    const api = getApi();
+    if (api?.setAssistantOpen) {
+      api.setAssistantOpen(assistantOpen);
+    }
+    set({ assistantOpen });
+  },
   setBackendStatus: (backendStatus) => set({ backendStatus }),
 
   addChatMessage: (msg) => {
@@ -183,82 +221,95 @@ export const useBrowserStore = create<BrowserStore>((set, get) => ({
   setLastScreenshotUrl: (url) => set({ lastScreenshotUrl: url }),
 
   createTab: async (url, isPrivate) => {
-    if (window.electronAPI?.createTab) {
-      await window.electronAPI.createTab(url, isPrivate);
+    const api = getApi();
+    if (api?.createTab) {
+      await api.createTab(url, isPrivate);
     }
   },
 
   closeTab: async (id) => {
-    if (window.electronAPI?.closeTab) {
-      await window.electronAPI.closeTab(id);
+    const api = getApi();
+    if (api?.closeTab) {
+      await api.closeTab(id);
     }
   },
 
   switchTab: async (id) => {
-    if (window.electronAPI?.switchTab) {
-      await window.electronAPI.switchTab(id);
+    const api = getApi();
+    if (api?.switchTab) {
+      await api.switchTab(id);
     }
   },
 
   restoreClosedTab: async () => {
-    if (window.electronAPI?.restoreClosedTab) {
-      await window.electronAPI.restoreClosedTab();
+    const api = getApi();
+    if (api?.restoreClosedTab) {
+      await api.restoreClosedTab();
     }
   },
 
   duplicateTab: async (id) => {
-    if (window.electronAPI?.duplicateTab) {
-      await window.electronAPI.duplicateTab(id);
+    const api = getApi();
+    if (api?.duplicateTab) {
+      await api.duplicateTab(id);
     }
   },
 
   setTabPinned: async (id: string, isPinned: boolean) => {
-    if (window.electronAPI?.setTabPinned) {
-      await window.electronAPI.setTabPinned(id, isPinned);
+    const api = getApi();
+    if (api?.setTabPinned) {
+      await api.setTabPinned(id, isPinned);
     }
   },
 
   navigate: async (url) => {
-    if (window.electronAPI?.navigate) {
-      await window.electronAPI.navigate(url);
+    const api = getApi();
+    if (api?.navigate) {
+      await api.navigate(url);
     }
   },
 
   goBack: async () => {
-    if (window.electronAPI?.goBack) {
-      await window.electronAPI.goBack();
+    const api = getApi();
+    if (api?.goBack) {
+      await api.goBack();
     }
   },
 
   goForward: async () => {
-    if (window.electronAPI?.goForward) {
-      await window.electronAPI.goForward();
+    const api = getApi();
+    if (api?.goForward) {
+      await api.goForward();
     }
   },
 
   reload: async () => {
-    if (window.electronAPI?.reload) {
-      await window.electronAPI.reload();
+    const api = getApi();
+    if (api?.reload) {
+      await api.reload();
     }
   },
 
   toggleSidebar: async () => {
-    if (window.electronAPI?.toggleSidebar) {
-      const open = await window.electronAPI.toggleSidebar();
+    const api = getApi();
+    if (api?.toggleSidebar) {
+      const open = await api.toggleSidebar();
       set({ sidebarOpen: open });
     }
   },
 
   toggleAssistant: async () => {
-    if (window.electronAPI?.toggleAssistant) {
-      const open = await window.electronAPI.toggleAssistant();
+    const api = getApi();
+    if (api?.toggleAssistant) {
+      const open = await api.toggleAssistant();
       set({ assistantOpen: open });
     }
   },
 
   capturePage: async () => {
-    if (window.electronAPI?.capturePage) {
-      const dataUrl = await window.electronAPI.capturePage();
+    const api = getApi();
+    if (api?.capturePage) {
+      const dataUrl = await api.capturePage();
       set({ lastScreenshotUrl: dataUrl });
       return dataUrl;
     }
@@ -266,15 +317,17 @@ export const useBrowserStore = create<BrowserStore>((set, get) => ({
   },
 
   inspectPage: async () => {
-    if (window.electronAPI?.inspectPage) {
-      const obs = await window.electronAPI.inspectPage();
+    const api = getApi();
+    if (api?.inspectPage) {
+      const obs = await api.inspectPage();
       set({ lastObservation: obs });
       return obs;
     }
     throw new Error('electronAPI not available');
   },
 
-  sendChatMessage: async (content: string) => {
+  sendChatMessage: async (content: string, context?: Record<string, unknown>) => {
+    get().setAssistantOpen(true);
     const userMsg: ChatMessage = {
       id: `msg-${Date.now()}`,
       sender: 'user',
@@ -283,7 +336,8 @@ export const useBrowserStore = create<BrowserStore>((set, get) => ({
     };
     get().addChatMessage(userMsg);
 
-    if (window.electronAPI?.sendChatMessage) {
+    const api = getApi();
+    if (api?.sendChatMessage) {
       const botMsg: ChatMessage = {
         id: `bot-${Date.now()}`,
         sender: 'assistant',
@@ -294,9 +348,10 @@ export const useBrowserStore = create<BrowserStore>((set, get) => ({
       set({ isAgentRunning: true });
 
       try {
-        const reply = await window.electronAPI.sendChatMessage(content, {
+        const reply = await api.sendChatMessage(content, {
           tabId: get().activeTabId,
-          url: get().activeTab?.url
+          url: get().activeTab?.url,
+          ...(context || {})
         });
         set(state => {
           const msgs = [...state.chatMessages];

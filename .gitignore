@@ -68,3 +68,10 @@ Desktop.ini
 *.sqlite
 *.sqlite3
 data/
+
+# Local tool outputs, logs & artifacts
+graphify-out/
+*.log
+.system_generated/
+scratch/
+

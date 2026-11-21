@@ -108,8 +108,34 @@ async def cancel_task(task_id: str, db: AsyncSession = Depends(get_db)):
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
+    from backend.app.agents.supervisor import SupervisorAgent
+    SupervisorAgent.cancel_task(task_id)
     await repo.update_task_status(task_id, status="cancelled", error="Cancelled by user")
     return {"status": "cancelled", "id": task_id}
+
+@router.post("/{task_id}/pause")
+async def pause_task(task_id: str, db: AsyncSession = Depends(get_db)):
+    repo = Repository(db)
+    task = await repo.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    from backend.app.agents.supervisor import SupervisorAgent
+    SupervisorAgent.pause_task(task_id)
+    await repo.update_task_status(task_id, status="paused")
+    return {"status": "paused", "id": task_id}
+
+@router.post("/{task_id}/resume")
+async def resume_task(task_id: str, db: AsyncSession = Depends(get_db)):
+    repo = Repository(db)
+    task = await repo.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    from backend.app.agents.supervisor import SupervisorAgent
+    SupervisorAgent.resume_task(task_id)
+    await repo.update_task_status(task_id, status="running")
+    return {"status": "running", "id": task_id}
 
 @router.post("/{task_id}/approve")
 async def approve_task(task_id: str, db: AsyncSession = Depends(get_db)):

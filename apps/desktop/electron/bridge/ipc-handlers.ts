@@ -57,13 +57,41 @@ export function setupIpcHandlers(deps: {
   // Forward AI chat streaming chunks to all panel views
   rpcClient.on('notification:chat:stream', (params: { chunk?: string }) => {
     if (params?.chunk) {
+      if (!layoutManager.isAssistantOpen()) {
+        const res = layoutManager.setAssistantOpen(true);
+        broadcastToPanels(IPC_CHANNELS.PANEL_ASSISTANT_STATE_CHANGED, res);
+      }
       broadcastToPanels(IPC_CHANNELS.CHAT_STREAM_CHUNK, params.chunk);
     }
   });
 
   // Forward AI chat actions to all panel views
   rpcClient.on('notification:chat:action', (params: any) => {
+    if (!layoutManager.isAssistantOpen()) {
+      const res = layoutManager.setAssistantOpen(true);
+      broadcastToPanels(IPC_CHANNELS.PANEL_ASSISTANT_STATE_CHANGED, res);
+    }
     broadcastToPanels(IPC_CHANNELS.CHAT_ACTION_UPDATE, params);
+    if (params?.status === 'approval_required') {
+      broadcastToPanels(IPC_CHANNELS.APPROVAL_REQUEST, params);
+    }
+  });
+
+  // Forward task step updates to all panel views
+  rpcClient.on('notification:task:step_updated', (params: any) => {
+    if (!layoutManager.isAssistantOpen()) {
+      const res = layoutManager.setAssistantOpen(true);
+      broadcastToPanels(IPC_CHANNELS.PANEL_ASSISTANT_STATE_CHANGED, res);
+    }
+    broadcastToPanels(IPC_CHANNELS.TASK_STEP_UPDATED, params);
+    if (params?.status === 'approval_required') {
+      broadcastToPanels(IPC_CHANNELS.APPROVAL_REQUEST, params);
+    }
+  });
+
+  // Forward workflow step updates to all panel views
+  rpcClient.on('notification:workflow:step_updated', (params: any) => {
+    broadcastToPanels(IPC_CHANNELS.WORKFLOW_STEP_UPDATE, params);
   });
 
   // Register JSON-RPC methods callable by Python process
@@ -110,8 +138,43 @@ export function setupIpcHandlers(deps: {
     return await tabManager.captureActivePage();
   });
 
+  const emitLaserIndicator = (coords: { x: number; y: number }) => {
+    const activeTab = tabManager.getActiveTab();
+    if (activeTab && !activeTab.view.webContents.isDestroyed()) {
+      activeTab.view.webContents.send(IPC_CHANNELS.COMET_LASER_INDICATOR, coords);
+      activeTab.view.webContents.executeJavaScript(`
+        (() => {
+          const dot = document.createElement('div');
+          dot.style.position = 'fixed';
+          dot.style.left = '${coords.x}px';
+          dot.style.top = '${coords.y}px';
+          dot.style.width = '18px';
+          dot.style.height = '18px';
+          dot.style.borderRadius = '50%';
+          dot.style.backgroundColor = 'rgba(239, 68, 68, 0.85)';
+          dot.style.boxShadow = '0 0 16px rgba(239, 68, 68, 1)';
+          dot.style.transform = 'translate(-50%, -50%) scale(1)';
+          dot.style.transition = 'all 0.6s cubic-bezier(0.16, 1, 0.3, 1)';
+          dot.style.pointerEvents = 'none';
+          dot.style.zIndex = '2147483647';
+          document.body.appendChild(dot);
+          requestAnimationFrame(() => {
+            dot.style.transform = 'translate(-50%, -50%) scale(2.8)';
+            dot.style.opacity = '0';
+          });
+          setTimeout(() => dot.remove(), 700);
+        })()
+      `).catch(() => {});
+    }
+    broadcastToPanels(IPC_CHANNELS.COMET_LASER_INDICATOR, coords);
+  };
+
   rpcClient.registerMethod('browser.click', async (params: { x: number; y: number }) => {
-    return await tabManager.clickAt(params.x, params.y);
+    const success = await tabManager.clickAt(params.x, params.y);
+    if (success) {
+      emitLaserIndicator({ x: params.x, y: params.y });
+    }
+    return { success: Boolean(success), x: params.x, y: params.y };
   });
 
   rpcClient.registerMethod('browser.type', async (params: { text: string }) => {
@@ -128,6 +191,30 @@ export function setupIpcHandlers(deps: {
 
   rpcClient.registerMethod('browser.press_key', async (params: { key: string }) => {
     return await tabManager.pressKey(params.key);
+  });
+
+  rpcClient.registerMethod('browser.click_selector', async (params: { selector: string }) => {
+    const res = await tabManager.clickSelector(params.selector);
+    if (res && res.success && typeof res.x === 'number' && typeof res.y === 'number') {
+      emitLaserIndicator({ x: res.x, y: res.y });
+    }
+    return res;
+  });
+
+  rpcClient.registerMethod('browser.fill_selector', async (params: { selector: string; text: string }) => {
+    return await tabManager.fillSelector(params.selector, params.text);
+  });
+
+  rpcClient.registerMethod('browser.wait_for_selector', async (params: { selector: string; timeout_ms?: number }) => {
+    return await tabManager.waitForSelector(params.selector, params.timeout_ms);
+  });
+
+  rpcClient.registerMethod('browser.detect_forms', async () => {
+    return await tabManager.detectForms();
+  });
+
+  rpcClient.registerMethod('browser.get_accessibility_tree', async () => {
+    return await tabManager.getAccessibilityTree();
   });
 
   const secretStorage = new SecretStorage();
@@ -236,11 +323,27 @@ export function setupIpcHandlers(deps: {
 
   // Layout & UI Handlers
   ipcMain.handle(IPC_CHANNELS.PANEL_TOGGLE_SIDEBAR, async () => {
-    return layoutManager.toggleSidebar();
+    const res = layoutManager.toggleSidebar();
+    broadcastToPanels(IPC_CHANNELS.PANEL_SIDEBAR_STATE_CHANGED, res);
+    return res;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.PANEL_SET_SIDEBAR_OPEN, async (_event, open: boolean) => {
+    const res = layoutManager.setSidebarOpen(open);
+    broadcastToPanels(IPC_CHANNELS.PANEL_SIDEBAR_STATE_CHANGED, res);
+    return res;
   });
 
   ipcMain.handle(IPC_CHANNELS.PANEL_TOGGLE_ASSISTANT, async () => {
-    return layoutManager.toggleAssistant();
+    const res = layoutManager.toggleAssistant();
+    broadcastToPanels(IPC_CHANNELS.PANEL_ASSISTANT_STATE_CHANGED, res);
+    return res;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.PANEL_SET_ASSISTANT_OPEN, async (_event, open: boolean) => {
+    const res = layoutManager.setAssistantOpen(open);
+    broadcastToPanels(IPC_CHANNELS.PANEL_ASSISTANT_STATE_CHANGED, res);
+    return res;
   });
 
   ipcMain.handle(IPC_CHANNELS.GET_INITIAL_STATE, async () => {
@@ -273,6 +376,10 @@ export function setupIpcHandlers(deps: {
   });
 
   ipcMain.handle(IPC_CHANNELS.SEND_CHAT_MESSAGE, async (_event, { message, context }) => {
+    if (!layoutManager.isAssistantOpen()) {
+      const res = layoutManager.setAssistantOpen(true);
+      broadcastToPanels(IPC_CHANNELS.PANEL_ASSISTANT_STATE_CHANGED, res);
+    }
     if (processManager.getStatus().online) {
       try {
         const sanitizeString = (str?: string): string => {
@@ -284,14 +391,20 @@ export function setupIpcHandlers(deps: {
 
         const cleanMessage = sanitizeString(message);
         const enrichedContext: Record<string, any> = { ...(context || {}) };
-        if (!enrichedContext.visibleText && tabManager.getActiveTab()) {
+        if ((!enrichedContext.visibleText || !enrichedContext.interactiveElements) && tabManager.getActiveTab()) {
           try {
             const obs = await tabManager.inspectActivePage();
             if (obs) {
-              enrichedContext.title = sanitizeString(obs.title);
-              enrichedContext.url = sanitizeString(obs.url);
-              if (obs.visibleText) {
+              if (!enrichedContext.title) enrichedContext.title = sanitizeString(obs.title);
+              if (!enrichedContext.url) enrichedContext.url = sanitizeString(obs.url);
+              if (obs.metaDescription) {
+                enrichedContext.metaDescription = sanitizeString(obs.metaDescription);
+              }
+              if (!enrichedContext.visibleText && obs.visibleText) {
                 enrichedContext.visibleText = sanitizeString(obs.visibleText).slice(0, 4000);
+              }
+              if (obs.interactiveElements && Array.isArray(obs.interactiveElements)) {
+                enrichedContext.interactiveElements = obs.interactiveElements.slice(0, 30);
               }
             }
           } catch (e) {
@@ -310,6 +423,10 @@ export function setupIpcHandlers(deps: {
 
   // Task & Multi-Agent Operations
   ipcMain.handle(IPC_CHANNELS.TASK_CREATE, async (_event, payload: { title: string; prompt: string; engine?: string; provider?: string; model?: string; mode?: string }) => {
+    if (!layoutManager.isAssistantOpen()) {
+      const res = layoutManager.setAssistantOpen(true);
+      broadcastToPanels(IPC_CHANNELS.PANEL_ASSISTANT_STATE_CHANGED, res);
+    }
     if (processManager.getStatus().online) {
       return await rpcClient.call('tasks.create', payload);
     }
@@ -337,6 +454,20 @@ export function setupIpcHandlers(deps: {
     return false;
   });
 
+  ipcMain.handle(IPC_CHANNELS.TASK_PAUSE, async (_event, taskId: string) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('tasks.pause', { task_id: taskId });
+    }
+    return false;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.TASK_RESUME, async (_event, taskId: string) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('tasks.resume', { task_id: taskId });
+    }
+    return false;
+  });
+
   ipcMain.handle(IPC_CHANNELS.TASK_APPROVE, async (_event, taskId: string, decision: boolean = true) => {
     if (processManager.getStatus().online) {
       return await rpcClient.call('tasks.approve', { task_id: taskId, decision });
@@ -347,6 +478,17 @@ export function setupIpcHandlers(deps: {
   ipcMain.handle(IPC_CHANNELS.TASK_REJECT, async (_event, taskId: string, reason?: string) => {
     if (processManager.getStatus().online) {
       return await rpcClient.call('tasks.reject', { task_id: taskId, reason });
+    }
+    return false;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.APPROVAL_RESPONSE, async (_event, payload: { taskId: string; approved: boolean; reason?: string }) => {
+    if (processManager.getStatus().online) {
+      if (payload.approved) {
+        return await rpcClient.call('tasks.approve', { task_id: payload.taskId, decision: true });
+      } else {
+        return await rpcClient.call('tasks.reject', { task_id: payload.taskId, reason: payload.reason });
+      }
     }
     return false;
   });
@@ -371,5 +513,235 @@ export function setupIpcHandlers(deps: {
       return await rpcClient.call('collections.delete', { id });
     }
     return false;
+  });
+
+  // Workflow Handlers
+  ipcMain.handle(IPC_CHANNELS.WORKFLOWS_LIST, async () => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('workflows.list', {});
+    }
+    return [];
+  });
+
+  ipcMain.handle(IPC_CHANNELS.WORKFLOW_GET, async (_event, workflowId: string) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('workflows.get', { workflow_id: workflowId });
+    }
+    return null;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.WORKFLOW_SAVE, async (_event, data: { name: string; description?: string; steps: any[]; variables?: any; id?: string }) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('workflows.save', data);
+    }
+    return null;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.WORKFLOW_DELETE, async (_event, workflowId: string) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('workflows.delete', { workflow_id: workflowId });
+    }
+    return false;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.WORKFLOW_EXECUTE, async (_event, workflowId: string, variables?: Record<string, any>) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('workflows.execute', { workflow_id: workflowId, variables });
+    }
+    return { status: 'error', error: 'Backend offline' };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.WORKFLOW_EXPORT, async (_event, workflowId: string) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('workflows.export', { workflow_id: workflowId });
+    }
+    return null;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.WORKFLOW_IMPORT, async (_event, data: any) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('workflows.import', { data });
+    }
+    return null;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.WORKFLOW_RECORD_START, async () => {
+    return await tabManager.startWorkflowRecording();
+  });
+
+  ipcMain.handle(IPC_CHANNELS.WORKFLOW_RECORD_STOP, async () => {
+    return await tabManager.stopWorkflowRecording();
+  });
+
+  // Research & Document Intelligence + Data Extraction
+  ipcMain.handle(IPC_CHANNELS.RESEARCH_SYNTHESIZE, async (_event, params: { topic: string; sources?: string[]; depth?: string }) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('research.synthesize', params);
+    }
+    return { status: 'error', error: 'Backend offline' };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.RESEARCH_LIST_REPORTS, async () => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('research.list_reports', {});
+    }
+    return [];
+  });
+
+  ipcMain.handle(IPC_CHANNELS.RESEARCH_GET_REPORT, async (_event, reportId: string) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('research.get_report', { report_id: reportId });
+    }
+    return null;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.RESEARCH_DELETE_REPORT, async (_event, reportId: string) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('research.delete_report', { report_id: reportId });
+    }
+    return { status: 'error', error: 'Backend offline' };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.DOCUMENTS_READ_PDF, async (_event, params: { path_or_url: string; max_pages?: number }) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('documents.read_pdf', params);
+    }
+    return { status: 'error', error: 'Backend offline' };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.DOCUMENTS_SUMMARIZE_PDF, async (_event, params: { path_or_url: string; query?: string }) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('documents.summarize_pdf', params);
+    }
+    return { status: 'error', error: 'Backend offline' };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.DATA_EXTRACT_TABLE, async (_event, params: { selector?: string; pagination_next_selector?: string; max_pages?: number }) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('data.extract_table', params);
+    }
+    return { status: 'error', error: 'Backend offline' };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.DATA_EXPORT, async (_event, params: { data: any[]; format?: string; filename?: string }) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('data.export', params);
+    }
+    return { status: 'error', error: 'Backend offline' };
+  });
+
+  // Long-Term Memory
+  ipcMain.handle(IPC_CHANNELS.MEMORY_REMEMBER, async (_event, params: { key: string; value: string; category?: string; tags?: string[] }) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('memory.remember', params);
+    }
+    return { status: 'error', error: 'Backend offline' };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.MEMORY_RECALL, async (_event, params: { query: string; category?: string }) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('memory.recall', params);
+    }
+    return [];
+  });
+
+  ipcMain.handle(IPC_CHANNELS.MEMORY_GET_ALL, async (_event, category?: string) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('memory.get_all', { category });
+    }
+    return [];
+  });
+
+  ipcMain.handle(IPC_CHANNELS.MEMORY_FORGET, async (_event, memoryId: string) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('memory.forget', { memory_id: memoryId });
+    }
+    return { status: 'error', error: 'Backend offline' };
+  });
+
+  // Website Monitors
+  ipcMain.handle(IPC_CHANNELS.MONITORS_CREATE, async (_event, params: { url: string; name: string; selector?: string; check_interval?: number }) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('monitors.create', params);
+    }
+    return { status: 'error', error: 'Backend offline' };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.MONITORS_LIST, async () => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('monitors.list', {});
+    }
+    return [];
+  });
+
+  ipcMain.handle(IPC_CHANNELS.MONITORS_CHECK_NOW, async (_event, monitorId: string) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('monitors.check_now', { monitor_id: monitorId });
+    }
+    return { status: 'error', error: 'Backend offline' };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.MONITORS_DELETE, async (_event, monitorId: string) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('monitors.delete', { monitor_id: monitorId });
+    }
+    return { status: 'error', error: 'Backend offline' };
+  });
+
+  // Windows Desktop Automation
+  ipcMain.handle(IPC_CHANNELS.DESKTOP_CLICK, async (_event, params: { x: number; y: number; button?: string }) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('desktop.click', params);
+    }
+    return { status: 'error', error: 'Backend offline' };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.DESKTOP_TYPE, async (_event, text: string) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('desktop.type', { text });
+    }
+    return { status: 'error', error: 'Backend offline' };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.DESKTOP_HOTKEY, async (_event, keys: string[]) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('desktop.hotkey', { keys });
+    }
+    return { status: 'error', error: 'Backend offline' };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.DESKTOP_CAPTURE_SCREEN, async () => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('desktop.capture_screen', {});
+    }
+    return { status: 'error', error: 'Backend offline' };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.DESKTOP_LAUNCH_APP, async (_event, params: { app_name: string; args?: string[] }) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('desktop.launch_app', params);
+    }
+    return { status: 'error', error: 'Backend offline' };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.DESKTOP_EMERGENCY_STOP, async () => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('desktop.emergency_stop', {});
+    }
+    return { status: 'ok', emergency_stopped: true };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.DESKTOP_RESET_STOP, async () => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('desktop.reset_stop', {});
+    }
+    return { status: 'ok', emergency_stopped: false };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.DESKTOP_GET_AUDIT_LOGS, async (_event, limit?: number) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('desktop.get_audit_logs', { limit: limit || 100 });
+    }
+    return [];
   });
 }

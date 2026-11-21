@@ -5,7 +5,8 @@ from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, update
 from backend.app.database.models import (
-    Conversation, Message, AgentTask, TaskStep, ApprovalRequest, ResearchCollection, ResearchSource, AppSetting
+    Conversation, Message, AgentTask, TaskStep, ApprovalRequest, ResearchCollection, ResearchSource, AppSetting,
+    Workflow, WorkflowExecution, UserMemory, WebsiteMonitor, ResearchReport, DesktopAuditLog
 )
 
 class Repository:
@@ -226,3 +227,232 @@ class Repository:
             await self.db.commit()
             await self.db.refresh(appr)
         return appr
+
+    # WORKFLOWS
+    async def create_workflow(
+        self,
+        name: str,
+        description: Optional[str] = None,
+        trigger_type: str = "manual",
+        steps: Optional[List[Dict[str, Any]]] = None,
+        variables: Optional[Dict[str, Any]] = None
+    ) -> Workflow:
+        wf = Workflow(
+            id=f"wf-{uuid.uuid4().hex[:12]}",
+            name=name,
+            description=description,
+            trigger_type=trigger_type,
+            steps_json=json.dumps(steps or []),
+            variables_json=json.dumps(variables or {}),
+            created_at=time.time(),
+            updated_at=time.time()
+        )
+        self.db.add(wf)
+        await self.db.commit()
+        await self.db.refresh(wf)
+        return wf
+
+    async def get_workflows(self, limit: int = 50) -> List[Workflow]:
+        stmt = select(Workflow).order_by(Workflow.updated_at.desc()).limit(limit)
+        res = await self.db.execute(stmt)
+        return list(res.scalars().all())
+
+    async def get_workflow(self, wf_id: str) -> Optional[Workflow]:
+        stmt = select(Workflow).where(Workflow.id == wf_id)
+        res = await self.db.execute(stmt)
+        return res.scalars().first()
+
+    async def update_workflow(
+        self,
+        wf_id: str,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        steps: Optional[List[Dict[str, Any]]] = None,
+        variables: Optional[Dict[str, Any]] = None
+    ) -> Optional[Workflow]:
+        stmt = select(Workflow).where(Workflow.id == wf_id)
+        res = await self.db.execute(stmt)
+        wf = res.scalars().first()
+        if not wf:
+            return None
+        if name is not None: wf.name = name
+        if description is not None: wf.description = description
+        if steps is not None: wf.steps_json = json.dumps(steps)
+        if variables is not None: wf.variables_json = json.dumps(variables)
+        wf.updated_at = time.time()
+        await self.db.commit()
+        await self.db.refresh(wf)
+        return wf
+
+    async def delete_workflow(self, wf_id: str) -> bool:
+        stmt = delete(Workflow).where(Workflow.id == wf_id)
+        res = await self.db.execute(stmt)
+        await self.db.commit()
+        return res.rowcount > 0
+
+    async def create_workflow_execution(self, wf_id: str) -> WorkflowExecution:
+        exec_item = WorkflowExecution(
+            id=f"wfexec-{uuid.uuid4().hex[:12]}",
+            workflow_id=wf_id,
+            status="running",
+            current_step=0,
+            started_at=time.time()
+        )
+        self.db.add(exec_item)
+        await self.db.commit()
+        await self.db.refresh(exec_item)
+        return exec_item
+
+    async def update_workflow_execution(
+        self,
+        exec_id: str,
+        status: str,
+        current_step: int = 0,
+        result: Optional[str] = None,
+        error: Optional[str] = None
+    ) -> Optional[WorkflowExecution]:
+        stmt = select(WorkflowExecution).where(WorkflowExecution.id == exec_id)
+        res = await self.db.execute(stmt)
+        exec_item = res.scalars().first()
+        if not exec_item:
+            return None
+        exec_item.status = status
+        exec_item.current_step = current_step
+        if result is not None: exec_item.result_json = result
+        if error is not None: exec_item.error = error
+        if status in ("completed", "failed", "cancelled"):
+            exec_item.completed_at = time.time()
+        await self.db.commit()
+        await self.db.refresh(exec_item)
+        return exec_item
+
+    # RESEARCH REPORTS
+    async def create_research_report(
+        self,
+        topic: str,
+        content_markdown: str,
+        sources: Optional[List[Dict[str, Any]]] = None,
+        summary: Optional[str] = None
+    ) -> ResearchReport:
+        report = ResearchReport(
+            id=f"rep-{uuid.uuid4().hex[:12]}",
+            topic=topic,
+            content_markdown=content_markdown,
+            sources_json=json.dumps(sources or []),
+            summary=summary,
+            created_at=time.time()
+        )
+        self.db.add(report)
+        await self.db.commit()
+        await self.db.refresh(report)
+        return report
+
+    async def get_research_reports(self) -> List[ResearchReport]:
+        stmt = select(ResearchReport).order_by(ResearchReport.created_at.desc())
+        res = await self.db.execute(stmt)
+        return list(res.scalars().all())
+
+    async def get_research_report(self, report_id: str) -> Optional[ResearchReport]:
+        stmt = select(ResearchReport).where(ResearchReport.id == report_id)
+        res = await self.db.execute(stmt)
+        return res.scalars().first()
+
+    async def delete_research_report(self, report_id: str) -> bool:
+        stmt = delete(ResearchReport).where(ResearchReport.id == report_id)
+        res = await self.db.execute(stmt)
+        await self.db.commit()
+        return res.rowcount > 0
+
+    # USER MEMORY
+    async def create_user_memory(
+        self,
+        key: str,
+        value: str,
+        category: str = "preference",
+        tags: Optional[List[str]] = None
+    ) -> UserMemory:
+        mem = UserMemory(
+            id=f"mem-{uuid.uuid4().hex[:12]}",
+            key=key,
+            value=value,
+            category=category,
+            tags_json=json.dumps(tags or []),
+            created_at=time.time(),
+            updated_at=time.time()
+        )
+        self.db.add(mem)
+        await self.db.commit()
+        await self.db.refresh(mem)
+        return mem
+
+    async def get_user_memories(self, category: Optional[str] = None) -> List[UserMemory]:
+        stmt = select(UserMemory)
+        if category:
+            stmt = stmt.where(UserMemory.category == category)
+        stmt = stmt.order_by(UserMemory.updated_at.desc())
+        res = await self.db.execute(stmt)
+        return list(res.scalars().all())
+
+    async def delete_user_memory(self, mem_id: str) -> bool:
+        stmt = delete(UserMemory).where(UserMemory.id == mem_id)
+        res = await self.db.execute(stmt)
+        await self.db.commit()
+        return res.rowcount > 0
+
+    # WEBSITE MONITORS
+    async def create_website_monitor(
+        self,
+        url: str,
+        name: str,
+        selector: Optional[str] = None,
+        check_interval: int = 3600
+    ) -> WebsiteMonitor:
+        mon = WebsiteMonitor(
+            id=f"mon-{uuid.uuid4().hex[:12]}",
+            url=url,
+            name=name,
+            selector=selector,
+            check_interval=check_interval,
+            created_at=time.time()
+        )
+        self.db.add(mon)
+        await self.db.commit()
+        await self.db.refresh(mon)
+        return mon
+
+    async def get_website_monitors(self) -> List[WebsiteMonitor]:
+        stmt = select(WebsiteMonitor).order_by(WebsiteMonitor.created_at.desc())
+        res = await self.db.execute(stmt)
+        return list(res.scalars().all())
+
+    async def delete_website_monitor(self, mon_id: str) -> bool:
+        stmt = delete(WebsiteMonitor).where(WebsiteMonitor.id == mon_id)
+        res = await self.db.execute(stmt)
+        await self.db.commit()
+        return res.rowcount > 0
+
+    # DESKTOP AUDIT LOGS
+    async def create_desktop_audit_log(
+        self,
+        action: str,
+        parameters: Optional[Dict[str, Any]] = None,
+        authorized: bool = True,
+        result: Optional[str] = None
+    ) -> DesktopAuditLog:
+        log_entry = DesktopAuditLog(
+            id=f"log-{uuid.uuid4().hex[:12]}",
+            action=action,
+            parameters_json=json.dumps(parameters or {}),
+            authorized=authorized,
+            result=result,
+            timestamp=time.time()
+        )
+        self.db.add(log_entry)
+        await self.db.commit()
+        await self.db.refresh(log_entry)
+        return log_entry
+
+    async def get_desktop_audit_logs(self, limit: int = 100) -> List[DesktopAuditLog]:
+        stmt = select(DesktopAuditLog).order_by(DesktopAuditLog.timestamp.desc()).limit(limit)
+        res = await self.db.execute(stmt)
+        return list(res.scalars().all())

@@ -36,6 +36,44 @@ export class PageObserver {
           height: window.innerHeight || 800
         };
 
+        const metaDescEl = document.querySelector('meta[name="description"]');
+        const metaDescription = metaDescEl ? metaDescEl.getAttribute('content') || undefined : undefined;
+
+        const getDeterministicSelector = (el) => {
+          // Priority 1: #id
+          if (el.id && typeof el.id === 'string' && el.id.trim()) {
+            const cleanId = el.id.trim();
+            return '#' + (window.CSS && CSS.escape ? CSS.escape(cleanId) : cleanId);
+          }
+          // Priority 2: [data-testid]
+          const testId = el.getAttribute('data-testid');
+          if (testId) {
+            return '[data-testid="' + testId + '"]';
+          }
+          // Priority 3: [name]
+          const nameAttr = el.getAttribute('name');
+          if (nameAttr) {
+            return '[name="' + nameAttr + '"]';
+          }
+          // Priority 4: [aria-label]
+          const ariaLabel = el.getAttribute('aria-label');
+          if (ariaLabel) {
+            return '[aria-label="' + ariaLabel + '"]';
+          }
+          // Priority 5: text=...
+          const rawText = (el.innerText || (el instanceof HTMLInputElement ? el.value : '') || '').trim();
+          if (rawText && rawText.length <= 50) {
+            return 'text=' + rawText.replace(/\\s+/g, ' ');
+          }
+          // Priority 6: tag:nth-of-type(n)
+          const tag = el.tagName.toLowerCase();
+          const parent = el.parentElement;
+          if (!parent) return tag;
+          const siblings = Array.from(parent.children).filter(c => c.tagName.toLowerCase() === tag);
+          const index = siblings.indexOf(el) + 1;
+          return tag + ':nth-of-type(' + (index > 0 ? index : 1) + ')';
+        };
+
         const elements = [];
         const selector = 'button, a, input:not([type="password"]), textarea, select, [role="button"], [role="link"], [role="checkbox"]';
         const nodes = Array.from(document.querySelectorAll(selector));
@@ -43,12 +81,15 @@ export class PageObserver {
         nodes.slice(0, 100).forEach((el, index) => {
           const rect = el.getBoundingClientRect();
           if (rect.width > 0 && rect.height > 0) {
+            const isDisabled = Boolean(el.disabled || el.getAttribute('aria-disabled') === 'true');
             elements.push({
               id: 'el-' + index,
+              selector: getDeterministicSelector(el),
               tagName: el.tagName.toLowerCase(),
               role: el.getAttribute('role') || undefined,
               label: el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.getAttribute('title') || undefined,
               text: (el.innerText || (el instanceof HTMLInputElement ? el.value : '') || '').slice(0, 100).trim(),
+              disabled: isDisabled,
               bounds: {
                 x: Math.round(rect.x),
                 y: Math.round(rect.y),
@@ -62,6 +103,7 @@ export class PageObserver {
         return {
           url: window.location.href,
           title: document.title,
+          metaDescription,
           viewport,
           visibleText: text.slice(0, 8000),
           interactiveElements: elements
@@ -96,6 +138,7 @@ export class PageObserver {
       tabId,
       url: sanitizeText(val.url),
       title: sanitizeText(val.title),
+      metaDescription: val.metaDescription ? sanitizeText(val.metaDescription) : undefined,
       viewport: val.viewport,
       visibleText: sanitizeText(val.visibleText),
       interactiveElements: val.interactiveElements,

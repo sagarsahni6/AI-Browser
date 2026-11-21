@@ -68,12 +68,12 @@ export class ProcessManager extends EventEmitter {
     console.log(`[ProcessManager] Monorepo root: ${rootDir}`);
     console.log(`[ProcessManager] Spawning Python backend on port ${this.port} using: ${pythonExe}`);
 
-    let storedApiKey = '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';
+    let storedApiKey = process.env.NVIDIA_API_KEY || '';
     try {
       const secretStorage = new SecretStorage();
       const loaded = secretStorage.getSecret('NVIDIA_API_KEY');
       if (loaded) storedApiKey = loaded;
-      else secretStorage.setSecret('NVIDIA_API_KEY', storedApiKey);
+      else if (storedApiKey) secretStorage.setSecret('NVIDIA_API_KEY', storedApiKey);
     } catch (e) {
       // safeStorage fallback
     }

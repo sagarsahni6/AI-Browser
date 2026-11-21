@@ -5,6 +5,7 @@ import { AssistantPanel } from '../panels/AssistantPanel';
 import { FirstRunWizard } from '../components/FirstRunWizard';
 import { NewTabPage } from '../components/NewTabPage';
 import { useBrowserStore, applyTheme } from '../store/browser-store';
+import { initLaserIndicator } from '../overlay/LaserIndicator';
 
 export const App: React.FC = () => {
   const [showWizard, setShowWizard] = useState(false);
@@ -58,11 +59,24 @@ export const App: React.FC = () => {
         useBrowserStore.getState().setActiveAction(action);
       });
 
+      const unsubAssistant = window.electronAPI.onAssistantStateChanged?.((open) => {
+        setAssistantOpen(open);
+      });
+
+      const unsubSidebar = window.electronAPI.onSidebarStateChanged?.((open) => {
+        setSidebarOpen(open);
+      });
+
+      const unsubLaser = initLaserIndicator();
+
       return () => {
         unsubTabs();
         unsubBackend();
         unsubChat();
         unsubAction?.();
+        unsubAssistant?.();
+        unsubSidebar?.();
+        unsubLaser();
       };
     }
   }, [setTabs, setSidebarOpen, setAssistantOpen, setBackendStatus, appendChatChunk]);

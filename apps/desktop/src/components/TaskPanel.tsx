@@ -73,7 +73,19 @@ export const TaskPanel: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (selectedTask?.status === 'running') {
+    const unsub = window.electronAPI?.onTaskStepUpdate?.((data: any) => {
+      if (data?.task_id) {
+        loadTasks();
+        if (selectedTask?.id === data.task_id) {
+          loadTaskDetails(data.task_id);
+        }
+      }
+    });
+    return () => unsub?.();
+  }, [selectedTask?.id]);
+
+  useEffect(() => {
+    if (selectedTask?.status === 'running' || selectedTask?.status === 'paused') {
       const interval = setInterval(() => loadTaskDetails(selectedTask.id), 2000);
       return () => clearInterval(interval);
     }
@@ -86,6 +98,9 @@ export const TaskPanel: React.FC = () => {
     setLoading(true);
     try {
       const taskTitle = title.trim() || prompt.slice(0, 30);
+      if (window.electronAPI?.setAssistantOpen) {
+        window.electronAPI.setAssistantOpen(true);
+      }
       if (window.electronAPI?.createTask) {
         const newTask = await window.electronAPI.createTask(taskTitle, prompt, {
           engine,
@@ -118,6 +133,19 @@ export const TaskPanel: React.FC = () => {
     switch (status) {
       case 'running':
         return <span className={`${styles.statusBadge} ${styles.statusRunning}`}>Running</span>;
+      case 'paused':
+        return (
+          <span
+            className={styles.statusBadge}
+            style={{
+              backgroundColor: 'var(--warning-bg)',
+              color: 'var(--warning)',
+              border: '1px solid var(--warning)'
+            }}
+          >
+            Paused
+          </span>
+        );
       case 'approval_required':
         return (
           <span
@@ -136,6 +164,18 @@ export const TaskPanel: React.FC = () => {
         return <span className={`${styles.statusBadge} ${styles.statusCompleted}`}>Completed</span>;
       case 'failed':
         return <span className={`${styles.statusBadge} ${styles.statusFailed}`}>Failed</span>;
+      case 'cancelled':
+        return (
+          <span
+            className={styles.statusBadge}
+            style={{
+              backgroundColor: 'var(--bg-tertiary)',
+              color: 'var(--text-muted)'
+            }}
+          >
+            Cancelled
+          </span>
+        );
       default:
         return <span className={`${styles.statusBadge} ${styles.statusPending}`}>{status}</span>;
     }
@@ -332,8 +372,61 @@ export const TaskPanel: React.FC = () => {
                       </div>
                     )}
 
-                    {selectedTask.status === 'running' && (
+                    {(selectedTask.status === 'running' || selectedTask.status === 'paused') && (
                       <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+                        {selectedTask.status === 'running' ? (
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              if (window.electronAPI?.pauseTask) {
+                                await window.electronAPI.pauseTask(selectedTask.id);
+                                loadTaskDetails(selectedTask.id);
+                                loadTasks();
+                              }
+                            }}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              backgroundColor: 'var(--warning-bg)',
+                              color: 'var(--warning)',
+                              border: '1px solid var(--warning)',
+                              borderRadius: 'var(--radius-sm)',
+                              padding: '3px 8px',
+                              fontSize: '10.5px',
+                              fontWeight: 600,
+                              cursor: 'pointer'
+                            }}
+                          >
+                            <span>Pause Task</span>
+                          </button>
+                        ) : (
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              if (window.electronAPI?.resumeTask) {
+                                await window.electronAPI.resumeTask(selectedTask.id);
+                                loadTaskDetails(selectedTask.id);
+                                loadTasks();
+                              }
+                            }}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              backgroundColor: 'var(--success)',
+                              color: '#fff',
+                              borderRadius: 'var(--radius-sm)',
+                              padding: '3px 8px',
+                              fontSize: '10.5px',
+                              fontWeight: 600,
+                              cursor: 'pointer'
+                            }}
+                          >
+                            <Play size={10} fill="#fff" />
+                            <span>Resume Task</span>
+                          </button>
+                        )}
                         <button
                           onClick={(e) => {
                             e.stopPropagation();

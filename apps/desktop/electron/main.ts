@@ -1,4 +1,5 @@
-import { app, BaseWindow, Menu } from 'electron';
+import { app, BaseWindow, Menu, globalShortcut } from 'electron';
+import { IPC_CHANNELS } from '@ai-browser/shared';
 import { createPanelView } from './panels/panel-factory';
 import { LayoutManager } from './layout-manager';
 import { TabManager } from './browser/tab-manager';
@@ -58,22 +59,34 @@ async function createWindow() {
     assistant: assistantView,
   });
 
+  const broadcastToPanels = (channel: string, ...args: any[]) => {
+    for (const view of [toolbarView, sidebarView, assistantView]) {
+      if (!view.webContents.isDestroyed()) {
+        view.webContents.send(channel, ...args);
+      }
+    }
+  };
+
   tabManager.setCallbacks({
     onActiveTabChanged: (tabView) => {
       layoutManager.setActiveTabView(tabView);
     },
     onToggleSidebar: () => {
-      layoutManager.toggleSidebar();
+      const res = layoutManager.toggleSidebar();
+      broadcastToPanels(IPC_CHANNELS.PANEL_SIDEBAR_STATE_CHANGED, res);
     },
     onToggleAssistant: () => {
-      layoutManager.toggleAssistant();
+      const res = layoutManager.toggleAssistant();
+      broadcastToPanels(IPC_CHANNELS.PANEL_ASSISTANT_STATE_CHANGED, res);
     },
     onBookmarkPage: (url, title) => {
       bookmarkManager?.addBookmark({ url, title });
     },
     onAskAI: (text) => {
+      const res = layoutManager.setAssistantOpen(true);
+      broadcastToPanels(IPC_CHANNELS.PANEL_ASSISTANT_STATE_CHANGED, res);
       if (!assistantView.webContents.isDestroyed()) {
-        assistantView.webContents.send('chat:incoming-prompt', text);
+        assistantView.webContents.send(IPC_CHANNELS.CHAT_INCOMING_PROMPT, text);
       }
     },
     onOpenCommandPalette: () => {
@@ -118,8 +131,20 @@ async function createWindow() {
     console.error('[Main] Failed to start Python process:', err);
   });
 
+  // Emergency Global Kill Switch (Ctrl+Alt+Q) for Desktop Automation
+  globalShortcut.register('CommandOrControl+Alt+Q', () => {
+    console.warn('[EMERGENCY STOP] Ctrl+Alt+Q activated! Halting desktop automation.');
+    rpcClient.call('desktop.emergency_stop', {}).catch(() => {});
+    for (const view of [toolbarView, sidebarView, assistantView]) {
+      if (!view.webContents.isDestroyed()) {
+        view.webContents.send('desktop:emergency-stopped');
+      }
+    }
+  });
+
   // Cleanup on window close
   mainWindow.on('closed', () => {
+    globalShortcut.unregisterAll();
     if (tabManager) tabManager.dispose();
     if (debuggerManager) debuggerManager.dispose();
     if (processManager) processManager.stop();
@@ -131,6 +156,10 @@ async function createWindow() {
 app.commandLine.appendSwitch('remote-debugging-port', '9222');
 
 app.whenReady().then(createWindow);
+
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

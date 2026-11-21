@@ -102,3 +102,77 @@ class AppSetting(Base):
     key = Column(String(64), primary_key=True)
     value_json = Column(Text, nullable=False)
     updated_at = Column(Float, default=time.time)
+
+class Workflow(Base):
+    __tablename__ = "workflows"
+
+    id = Column(String(64), primary_key=True)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    trigger_type = Column(String(64), nullable=False, default="manual") # manual, schedule, url_match
+    steps_json = Column(Text, nullable=False, default="[]")
+    variables_json = Column(Text, nullable=True, default="{}")
+    created_at = Column(Float, default=time.time, index=True)
+    updated_at = Column(Float, default=time.time)
+
+    executions = relationship("WorkflowExecution", back_populates="workflow", cascade="all, delete-orphan")
+
+class WorkflowExecution(Base):
+    __tablename__ = "workflow_executions"
+
+    id = Column(String(64), primary_key=True)
+    workflow_id = Column(String(64), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False, index=True)
+    status = Column(String(32), nullable=False, default="pending") # pending, running, completed, failed, cancelled
+    current_step = Column(Integer, default=0)
+    result_json = Column(Text, nullable=True)
+    error = Column(Text, nullable=True)
+    started_at = Column(Float, default=time.time)
+    completed_at = Column(Float, nullable=True)
+
+    workflow = relationship("Workflow", back_populates="executions")
+
+class UserMemory(Base):
+    __tablename__ = "user_memories"
+
+    id = Column(String(64), primary_key=True)
+    category = Column(String(64), nullable=False, default="preference") # preference, research, workflow, context
+    key = Column(String(128), nullable=False, index=True)
+    value = Column(Text, nullable=False)
+    tags_json = Column(Text, nullable=True, default="[]")
+    created_at = Column(Float, default=time.time, index=True)
+    updated_at = Column(Float, default=time.time)
+
+class WebsiteMonitor(Base):
+    __tablename__ = "website_monitors"
+
+    id = Column(String(64), primary_key=True)
+    url = Column(Text, nullable=False)
+    name = Column(String(255), nullable=False)
+    selector = Column(String(255), nullable=True)
+    last_content_hash = Column(String(64), nullable=True)
+    last_text_snippet = Column(Text, nullable=True)
+    check_interval = Column(Integer, default=3600) # seconds
+    last_check_at = Column(Float, nullable=True)
+    status = Column(String(32), default="active") # active, paused, alert
+    alert_on_change = Column(Boolean, default=True)
+    created_at = Column(Float, default=time.time)
+
+class ResearchReport(Base):
+    __tablename__ = "research_reports"
+
+    id = Column(String(64), primary_key=True)
+    topic = Column(String(255), nullable=False)
+    content_markdown = Column(Text, nullable=False)
+    sources_json = Column(Text, nullable=True, default="[]")
+    summary = Column(Text, nullable=True)
+    created_at = Column(Float, default=time.time, index=True)
+
+class DesktopAuditLog(Base):
+    __tablename__ = "desktop_audit_logs"
+
+    id = Column(String(64), primary_key=True)
+    action = Column(String(64), nullable=False) # mouse_click, key_press, screen_capture, app_launch
+    parameters_json = Column(Text, nullable=True)
+    authorized = Column(Boolean, default=True)
+    result = Column(Text, nullable=True)
+    timestamp = Column(Float, default=time.time, index=True)

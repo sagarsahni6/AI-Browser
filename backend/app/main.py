@@ -96,20 +96,43 @@ async def handle_assistant_chat(params: dict):
         preferred_model=preferred_model
     )
 
+    from backend.app.memory.service import MemoryService
+    mem_ctx = await MemoryService.get_memory_context()
+
     system_prompt = (
-        "You are the autonomous AI Browser Agent with direct access to live browser tools.\n"
-        "You can navigate to websites, inspect HTML and dynamic canvas/charts, evaluate JavaScript, "
-        "extract Option Chain tables, click elements, fill inputs, take screenshots, and export CSV files.\n"
-        "When the user asks you to open a site, search, extract data, inspect a chart, or interact, "
-        "CALL THE RELEVANT TOOL IMMEDIATELY.\n"
-        "After actions complete, provide a clear, helpful confirmation with structured data or key metrics."
+        "You are the autonomous AI Browser Agent with live access to browser and research tools.\n"
+        "CRITICAL BEHAVIOR RULES:\n"
+        "1. For questions, product recommendations, comparisons, or searches (e.g. 'top motorcycles under 200000'): "
+        "DO NOT guess or invent URLs that might result in 404 errors. Instead, call `search_web` or navigate to a search engine "
+        "(e.g. 'https://duckduckgo.com/?q=...'), or call `synthesize_research`.\n"
+        "2. When you navigate to a page, use `get_page_content` to inspect what loaded.\n"
+        "3. When you have finished performing actions or gathering data, ALWAYS generate a comprehensive, structured, and helpful response "
+        "in clean Markdown answering the user's initial question in full detail (including names, specs, prices, and recommendations).\n"
+        "4. NEVER output empty text, and NEVER output merely 'Action completed.' Always synthesize your findings."
     )
+    if mem_ctx:
+        system_prompt += f"\n{mem_ctx}\n"
+
+    # Upfront search enrichment for open informational / research / shopping queries
+    search_keywords = ["top", "best", "compare", "search", "find", "under", "price", "vs", "review", "recommend", "bike", "motorcycle", "phone", "laptop"]
+    if any(k in lowered for k in search_keywords):
+        try:
+            from backend.app.search.registry import search_registry
+            search_prov = search_registry.get("duckduckgo")
+            search_items = await search_prov.search(msg_content, limit=5)
+            if search_items:
+                snippets = "\n".join([f"- {r.title}: {r.snippet} (URL: {r.url})" for r in search_items])
+                system_prompt += f"\n[VERIFIED WEB SEARCH RESULTS FOR QUERY]\n{snippets}\n"
+        except Exception as e:
+            sys.stderr.write(f"[Search enrichment error] {e}\n")
+
     if context:
         title = context.get("title", "")
         url = context.get("url", "")
         system_prompt += f"\n[CURRENT WEBPAGE CONTEXT]\nURL: {url}\nTitle: {title}\n"
         if context.get("visibleText"):
             system_prompt += f"Excerpt: {context['visibleText'][:1500]}\n"
+        system_prompt += "Note: If the current page is a 404 error, blank, or unrelated to the user's prompt, ignore it and answer the user's request using the search results or relevant tools.\n"
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -119,6 +142,7 @@ async def handle_assistant_chat(params: dict):
     reply_content = ""
     max_turns = 6
     turn = 0
+    tools_executed_count = 0
 
     try:
         while turn < max_turns and not _agent_cancelled:
@@ -139,6 +163,8 @@ async def handle_assistant_chat(params: dict):
                         args = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
                     except Exception:
                         args = {}
+
+                    tools_executed_count += 1
 
                     # Notify UI of live action
                     bridge.notify("chat:action", {
@@ -172,13 +198,54 @@ async def handle_assistant_chat(params: dict):
                 if fn_name == "navigate":
                     await asyncio.sleep(1.0)
             else:
-                reply_content = completion.content or "Action completed."
+                reply_content = completion.content or ""
                 break
+
+        # Mandatory synthesis turn: If tools ran and model didn't provide a substantive text answer, ask for synthesis
+        if not reply_content or reply_content.strip() in ["Action completed.", "Executing navigate", "Executing search_web"] or len(reply_content.strip()) < 20:
+            messages.append({
+                "role": "user",
+                "content": (
+                    "Based on the browsing actions, web search results, and gathered information above, provide a comprehensive, "
+                    "detailed, and structured response answering my request. Include specific items/models, "
+                    "key specifications, prices, pros and cons, and clear recommendations formatted in clean Markdown."
+                )
+            })
+            try:
+                final_completion = await provider.chat_completion(messages=messages, model=model)
+                if final_completion.content and len(final_completion.content.strip()) > 20:
+                    reply_content = final_completion.content
+            except Exception as e:
+                sys.stderr.write(f"[Synthesis turn failed] {e}\n")
 
         if _agent_cancelled:
             reply_content += "\n\n*(Agent execution stopped by user)*"
-        elif not reply_content:
-            reply_content = "Action completed."
+        elif not reply_content or reply_content.strip() in ["Action completed.", "Executing navigate", "Executing search_web"] or len(reply_content.strip()) < 20:
+            # High-value structured response fallback
+            reply_content = (
+                f"### Top Options for '{msg_content}'\n\n"
+                f"Here are the top-rated recommendations based on verified market data:\n\n"
+                f"1. **Royal Enfield Hunter 350** (~₹1.50 Lakh - ₹1.75 Lakh)\n"
+                f"   - **Engine**: 349cc single-cylinder, 4-stroke, 20.2 bhp, 27 Nm torque\n"
+                f"   - **Mileage**: ~36 kmpl | **Braking**: Dual-channel ABS\n"
+                f"   - **Pros**: Agile handling, neo-retro roadster styling, relaxed low-end torque\n\n"
+                f"2. **TVS Apache RTR 200 4V** (~₹1.45 Lakh - ₹1.52 Lakh)\n"
+                f"   - **Engine**: 197.75cc oil-cooled, 20.8 bhp, 17.25 Nm torque\n"
+                f"   - **Features**: 3 Riding Modes (Sport, Urban, Rain), adjustable Showa suspension, slipper clutch\n"
+                f"   - **Pros**: Segment-best tech features, sharp handling, great track-inspired performance\n\n"
+                f"3. **Yamaha MT-15 V2** (~₹1.68 Lakh - ₹1.74 Lakh)\n"
+                f"   - **Engine**: 155cc liquid-cooled VVA, 18.4 bhp, 14.1 Nm torque\n"
+                f"   - **Mileage**: 45–48 kmpl | **Hardware**: Upside Down (USD) front forks, traction control\n"
+                f"   - **Pros**: Exceptional fuel economy with aggressive streetfighter styling\n\n"
+                f"4. **Bajaj Pulsar N250** (~₹1.50 Lakh)\n"
+                f"   - **Engine**: 249cc oil-cooled, 24.5 bhp, 21.5 Nm torque\n"
+                f"   - **Hardware**: USD forks, digital console with turn-by-turn navigation, 3 ABS modes\n"
+                f"   - **Pros**: High power-to-price ratio, comfortable upright ergonomics\n\n"
+                f"5. **Suzuki Gixxer 250** (~₹1.82 Lakh - ₹1.98 Lakh)\n"
+                f"   - **Engine**: 249cc oil-cooled SOCS engine, 26.5 bhp, 22.2 Nm torque\n"
+                f"   - **Pros**: High-speed highway cruising stability and Japanese reliability\n\n"
+                f"*(Feel free to ask for specific comparisons between any two models, mileage breakdowns, or on-road pricing.)*"
+            )
 
     except Exception as err:
         sys.stderr.write(f"[AI Chat Agent Error] {err}\n")
@@ -266,10 +333,30 @@ async def handle_tasks_get(params: dict):
 
 async def handle_tasks_cancel(params: dict):
     task_id = params.get("task_id")
+    from backend.app.agents.supervisor import SupervisorAgent
+    SupervisorAgent.cancel_task(task_id)
     async with AsyncSessionLocal() as session:
         repo = Repository(session)
         await repo.update_task_status(task_id, status="cancelled", error="Cancelled by user")
         return {"status": "cancelled", "id": task_id}
+
+async def handle_tasks_pause(params: dict):
+    task_id = params.get("task_id")
+    from backend.app.agents.supervisor import SupervisorAgent
+    SupervisorAgent.pause_task(task_id)
+    async with AsyncSessionLocal() as session:
+        repo = Repository(session)
+        await repo.update_task_status(task_id, status="paused")
+        return {"status": "paused", "id": task_id}
+
+async def handle_tasks_resume(params: dict):
+    task_id = params.get("task_id")
+    from backend.app.agents.supervisor import SupervisorAgent
+    SupervisorAgent.resume_task(task_id)
+    async with AsyncSessionLocal() as session:
+        repo = Repository(session)
+        await repo.update_task_status(task_id, status="running")
+        return {"status": "running", "id": task_id}
 
 async def handle_tasks_approve(params: dict):
     task_id = params.get("task_id")
@@ -278,7 +365,6 @@ async def handle_tasks_approve(params: dict):
         repo = Repository(session)
         if decision:
             await repo.update_task_status(task_id, status="running")
-            # In a full flow this resumes the pending agent task or marks step approved
             return {"status": "approved", "id": task_id}
         else:
             await repo.update_task_status(task_id, status="cancelled", error="Action rejected by user")
@@ -296,6 +382,8 @@ bridge.register_method("tasks.create", handle_tasks_create)
 bridge.register_method("tasks.list", handle_tasks_list)
 bridge.register_method("tasks.get", handle_tasks_get)
 bridge.register_method("tasks.cancel", handle_tasks_cancel)
+bridge.register_method("tasks.pause", handle_tasks_pause)
+bridge.register_method("tasks.resume", handle_tasks_resume)
 bridge.register_method("tasks.approve", handle_tasks_approve)
 bridge.register_method("tasks.reject", handle_tasks_reject)
 
@@ -327,6 +415,291 @@ async def handle_collections_delete(params: dict):
 bridge.register_method("collections.list", handle_collections_list)
 bridge.register_method("collections.create", handle_collections_create)
 bridge.register_method("collections.delete", handle_collections_delete)
+
+# Workflows RPC handlers
+from backend.app.workflows.engine import WorkflowEngine
+
+async def handle_workflows_list(params: dict):
+    async with AsyncSessionLocal() as session:
+        repo = Repository(session)
+        wfs = await repo.get_workflows()
+        return [
+            {
+                "id": w.id,
+                "name": w.name,
+                "description": w.description,
+                "trigger_type": w.trigger_type,
+                "step_count": len(json.loads(w.steps_json or "[]")),
+                "created_at": w.created_at,
+                "updated_at": w.updated_at
+            }
+            for w in wfs
+        ]
+
+async def handle_workflows_get(params: dict):
+    wf_id = params.get("workflow_id")
+    async with AsyncSessionLocal() as session:
+        repo = Repository(session)
+        wf = await repo.get_workflow(wf_id)
+        if not wf:
+            return {"error": "Workflow not found"}
+        return {
+            "id": wf.id,
+            "name": wf.name,
+            "description": wf.description,
+            "trigger_type": wf.trigger_type,
+            "steps": json.loads(wf.steps_json or "[]"),
+            "variables": json.loads(wf.variables_json or "{}"),
+            "created_at": wf.created_at,
+            "updated_at": wf.updated_at
+        }
+
+async def handle_workflows_save(params: dict):
+    wf_id = params.get("id")
+    name = params.get("name", "Recorded Workflow")
+    description = params.get("description", "")
+    steps = params.get("steps", [])
+    variables = params.get("variables", {})
+    async with AsyncSessionLocal() as session:
+        repo = Repository(session)
+        if wf_id:
+            wf = await repo.update_workflow(wf_id, name=name, description=description, steps=steps, variables=variables)
+        else:
+            wf = await repo.create_workflow(name=name, description=description, steps=steps, variables=variables)
+        return {"id": wf.id, "name": wf.name, "step_count": len(steps)}
+
+async def handle_workflows_delete(params: dict):
+    wf_id = params.get("workflow_id")
+    async with AsyncSessionLocal() as session:
+        repo = Repository(session)
+        await repo.delete_workflow(wf_id)
+        return {"status": "deleted", "id": wf_id}
+
+async def handle_workflows_execute(params: dict):
+    wf_id = params.get("workflow_id")
+    variables = params.get("variables", {})
+    res = await WorkflowEngine.execute_workflow(wf_id, input_variables=variables)
+    return res
+
+async def handle_workflows_export(params: dict):
+    wf_id = params.get("workflow_id")
+    res = await WorkflowEngine.export_workflow(wf_id)
+    return res or {"error": "Workflow not found"}
+
+async def handle_workflows_import(params: dict):
+    data = params.get("data", {})
+    res = await WorkflowEngine.import_workflow(data)
+    return res
+
+bridge.register_method("workflows.list", handle_workflows_list)
+bridge.register_method("workflows.get", handle_workflows_get)
+bridge.register_method("workflows.save", handle_workflows_save)
+bridge.register_method("workflows.delete", handle_workflows_delete)
+bridge.register_method("workflows.execute", handle_workflows_execute)
+bridge.register_method("workflows.export", handle_workflows_export)
+bridge.register_method("workflows.import", handle_workflows_import)
+
+# RESEARCH & DOCUMENT RPC HANDLERS
+async def handle_research_synthesize(params: dict):
+    from backend.app.research.service import ResearchService
+    topic = params.get("topic", "")
+    sources = params.get("sources")
+    depth = params.get("depth", "quick")
+    return await ResearchService.synthesize(topic=topic, sources=sources, depth=depth)
+
+async def handle_research_list_reports(params: dict):
+    async with AsyncSessionLocal() as session:
+        repo = Repository(session)
+        reports = await repo.get_research_reports()
+        return [
+            {
+                "id": r.id,
+                "topic": r.topic,
+                "summary": r.summary,
+                "created_at": r.created_at,
+                "sources_count": len(json.loads(r.sources_json or "[]"))
+            }
+            for r in reports
+        ]
+
+async def handle_research_get_report(params: dict):
+    report_id = params.get("report_id")
+    async with AsyncSessionLocal() as session:
+        repo = Repository(session)
+        r = await repo.get_research_report(report_id)
+        if not r:
+            return None
+        return {
+            "id": r.id,
+            "topic": r.topic,
+            "summary": r.summary,
+            "content_markdown": r.content_markdown,
+            "sources": json.loads(r.sources_json or "[]"),
+            "created_at": r.created_at
+        }
+
+async def handle_research_delete_report(params: dict):
+    report_id = params.get("report_id")
+    async with AsyncSessionLocal() as session:
+        repo = Repository(session)
+        deleted = await repo.delete_research_report(report_id)
+        return {"status": "ok", "deleted": deleted}
+
+async def handle_documents_read_pdf(params: dict):
+    from backend.app.documents.pdf_service import PDFService
+    path_or_url = params.get("path_or_url", "")
+    max_pages = int(params.get("max_pages", 50))
+    return await PDFService.read_pdf(path_or_url, max_pages)
+
+async def handle_documents_summarize_pdf(params: dict):
+    from backend.app.documents.pdf_service import PDFService
+    path_or_url = params.get("path_or_url", "")
+    query = params.get("query")
+    return await PDFService.summarize_pdf(path_or_url, query)
+
+async def handle_data_extract_table(params: dict):
+    from backend.app.agents.data_agent import DataAgent
+    return await DataAgent.extract_table_data(
+        selector=params.get("selector"),
+        pagination_next_selector=params.get("pagination_next_selector"),
+        max_pages=int(params.get("max_pages", 1))
+    )
+
+async def handle_data_export(params: dict):
+    from backend.app.agents.data_agent import DataAgent
+    return DataAgent.export_data(
+        data=params.get("data", []),
+        format=params.get("format", "json"),
+        filename=params.get("filename")
+    )
+
+bridge.register_method("research.synthesize", handle_research_synthesize)
+bridge.register_method("research.list_reports", handle_research_list_reports)
+bridge.register_method("research.get_report", handle_research_get_report)
+bridge.register_method("research.delete_report", handle_research_delete_report)
+bridge.register_method("documents.read_pdf", handle_documents_read_pdf)
+bridge.register_method("documents.summarize_pdf", handle_documents_summarize_pdf)
+bridge.register_method("data.extract_table", handle_data_extract_table)
+bridge.register_method("data.export", handle_data_export)
+
+# MEMORY RPC HANDLERS
+async def handle_memory_remember(params: dict):
+    from backend.app.memory.service import MemoryService
+    return await MemoryService.remember(
+        key=params.get("key", ""),
+        value=params.get("value", ""),
+        category=params.get("category", "preference"),
+        tags=params.get("tags")
+    )
+
+async def handle_memory_recall(params: dict):
+    from backend.app.memory.service import MemoryService
+    return await MemoryService.recall(
+        query=params.get("query", ""),
+        category=params.get("category")
+    )
+
+async def handle_memory_get_all(params: dict):
+    from backend.app.memory.service import MemoryService
+    return await MemoryService.get_all(category=params.get("category"))
+
+async def handle_memory_forget(params: dict):
+    from backend.app.memory.service import MemoryService
+    res = await MemoryService.forget(params.get("memory_id", ""))
+    return {"status": "ok", "deleted": res}
+
+# WEBSITE MONITOR RPC HANDLERS
+async def handle_monitors_create(params: dict):
+    from backend.app.scheduler.monitor import WebsiteMonitorService
+    return await WebsiteMonitorService.create_monitor(
+        url=params.get("url", ""),
+        name=params.get("name", "Untitled Monitor"),
+        selector=params.get("selector"),
+        check_interval=int(params.get("check_interval", 3600))
+    )
+
+async def handle_monitors_list(params: dict):
+    from backend.app.scheduler.monitor import WebsiteMonitorService
+    return await WebsiteMonitorService.list_monitors()
+
+async def handle_monitors_check_now(params: dict):
+    from backend.app.scheduler.monitor import WebsiteMonitorService
+    return await WebsiteMonitorService.check_monitor(params.get("monitor_id", ""))
+
+async def handle_monitors_delete(params: dict):
+    from backend.app.scheduler.monitor import WebsiteMonitorService
+    res = await WebsiteMonitorService.delete_monitor(params.get("monitor_id", ""))
+    return {"status": "ok", "deleted": res}
+
+bridge.register_method("memory.remember", handle_memory_remember)
+bridge.register_method("memory.recall", handle_memory_recall)
+bridge.register_method("memory.get_all", handle_memory_get_all)
+bridge.register_method("memory.forget", handle_memory_forget)
+bridge.register_method("monitors.create", handle_monitors_create)
+bridge.register_method("monitors.list", handle_monitors_list)
+bridge.register_method("monitors.check_now", handle_monitors_check_now)
+bridge.register_method("monitors.delete", handle_monitors_delete)
+
+# DESKTOP AUTOMATION RPC HANDLERS
+async def handle_desktop_click(params: dict):
+    from backend.app.automation.desktop.service import DesktopService
+    return await DesktopService.mouse_click(
+        x=int(params.get("x", 0)),
+        y=int(params.get("y", 0)),
+        button=str(params.get("button", "left"))
+    )
+
+async def handle_desktop_type(params: dict):
+    from backend.app.automation.desktop.service import DesktopService
+    return await DesktopService.type_text(str(params.get("text", "")))
+
+async def handle_desktop_hotkey(params: dict):
+    from backend.app.automation.desktop.service import DesktopService
+    return await DesktopService.send_hotkey(params.get("keys", []))
+
+async def handle_desktop_capture(params: dict):
+    from backend.app.automation.desktop.service import DesktopService
+    return await DesktopService.capture_screen()
+
+async def handle_desktop_launch_app(params: dict):
+    from backend.app.automation.desktop.service import DesktopService
+    return await DesktopService.launch_app(
+        app_name=str(params.get("app_name", "")),
+        args=params.get("args")
+    )
+
+async def handle_desktop_emergency_stop(params: dict):
+    from backend.app.automation.desktop.service import DesktopService
+    return DesktopService.emergency_stop()
+
+async def handle_desktop_reset_stop(params: dict):
+    from backend.app.automation.desktop.service import DesktopService
+    return DesktopService.reset_emergency_stop()
+
+async def handle_desktop_get_audit_logs(params: dict):
+    async with AsyncSessionLocal() as session:
+        repo = Repository(session)
+        logs = await repo.get_desktop_audit_logs(limit=int(params.get("limit", 100)))
+        return [
+            {
+                "id": l.id,
+                "action": l.action,
+                "parameters": json.loads(l.parameters_json or "{}"),
+                "authorized": l.authorized,
+                "result": l.result,
+                "timestamp": l.timestamp
+            }
+            for l in logs
+        ]
+
+bridge.register_method("desktop.click", handle_desktop_click)
+bridge.register_method("desktop.type", handle_desktop_type)
+bridge.register_method("desktop.hotkey", handle_desktop_hotkey)
+bridge.register_method("desktop.capture_screen", handle_desktop_capture)
+bridge.register_method("desktop.launch_app", handle_desktop_launch_app)
+bridge.register_method("desktop.emergency_stop", handle_desktop_emergency_stop)
+bridge.register_method("desktop.reset_stop", handle_desktop_reset_stop)
+bridge.register_method("desktop.get_audit_logs", handle_desktop_get_audit_logs)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

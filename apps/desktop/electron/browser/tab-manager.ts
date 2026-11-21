@@ -4,6 +4,7 @@ import { DebuggerManager } from './debugger-manager';
 import { PageObserver } from './page-observer';
 import { ScreenshotManager } from './screenshot-manager';
 import { PageActions } from './page-actions';
+import { WorkflowRecorder, type RecordedStep } from './workflow-recorder';
 import { HistoryManager } from './history-manager';
 import { SessionManager } from './session-manager';
 import { attachContextMenu } from './context-menu';
@@ -195,8 +196,10 @@ export class TabManager {
     });
 
     // Handle tab self-close when in-page script calls window.close()
-    wc.on('close', () => {
-      this.closeTab(id);
+    (wc as any).on('close', () => {
+      if (this.tabs.has(id)) {
+        this.closeTab(id);
+      }
     });
 
     // Attach Context Menu
@@ -252,6 +255,9 @@ export class TabManager {
     const tabItem = this.tabs.get(tabId);
     if (!tabItem) return;
 
+    // Immediately remove from tab map so re-entrant calls exit cleanly
+    this.tabs.delete(tabId);
+
     // Record in closed tabs stack
     if (!tabItem.info.isPrivate) {
       this.sessionManager.recordClosedTab(tabItem.info.url, tabItem.info.title);
@@ -266,10 +272,9 @@ export class TabManager {
     }
 
     if (!tabItem.view.webContents.isDestroyed()) {
+      tabItem.view.webContents.removeAllListeners('close');
       (tabItem.view.webContents as any).close?.();
     }
-
-    this.tabs.delete(tabId);
 
     if (this.activeTabId === tabId) {
       const remaining = Array.from(this.tabs.keys());
@@ -396,7 +401,7 @@ export class TabManager {
     const active = this.getActiveTab();
     if (!active) throw new Error('No active tab');
     const cdp = this.debuggerManager.getClient(active.view.webContents);
-    const actions = new PageActions(cdp);
+    const actions = new PageActions(cdp, active.view.webContents);
     return actions.click(x, y);
   }
 
@@ -404,7 +409,7 @@ export class TabManager {
     const active = this.getActiveTab();
     if (!active) throw new Error('No active tab');
     const cdp = this.debuggerManager.getClient(active.view.webContents);
-    const actions = new PageActions(cdp);
+    const actions = new PageActions(cdp, active.view.webContents);
     return actions.typeText(text);
   }
 
@@ -412,7 +417,7 @@ export class TabManager {
     const active = this.getActiveTab();
     if (!active) throw new Error('No active tab');
     const cdp = this.debuggerManager.getClient(active.view.webContents);
-    const actions = new PageActions(cdp);
+    const actions = new PageActions(cdp, active.view.webContents);
     return actions.fillInput(x, y, text);
   }
 
@@ -420,7 +425,7 @@ export class TabManager {
     const active = this.getActiveTab();
     if (!active) throw new Error('No active tab');
     const cdp = this.debuggerManager.getClient(active.view.webContents);
-    const actions = new PageActions(cdp);
+    const actions = new PageActions(cdp, active.view.webContents);
     return actions.scrollPage(deltaX, deltaY);
   }
 
@@ -428,8 +433,62 @@ export class TabManager {
     const active = this.getActiveTab();
     if (!active) throw new Error('No active tab');
     const cdp = this.debuggerManager.getClient(active.view.webContents);
-    const actions = new PageActions(cdp);
+    const actions = new PageActions(cdp, active.view.webContents);
     return actions.pressKey(key);
+  }
+
+  public async clickSelector(selector: string): Promise<{ success: boolean; x?: number; y?: number; error?: string }> {
+    const active = this.getActiveTab();
+    if (!active) throw new Error('No active tab');
+    const cdp = this.debuggerManager.getClient(active.view.webContents);
+    const actions = new PageActions(cdp, active.view.webContents);
+    return actions.clickSelector(selector);
+  }
+
+  public async fillSelector(selector: string, text: string): Promise<{ success: boolean; textLength: number; error?: string }> {
+    const active = this.getActiveTab();
+    if (!active) throw new Error('No active tab');
+    const cdp = this.debuggerManager.getClient(active.view.webContents);
+    const actions = new PageActions(cdp, active.view.webContents);
+    return actions.fillSelector(selector, text);
+  }
+
+  public async waitForSelector(selector: string, timeoutMs?: number): Promise<{ found: boolean; elapsedMs: number }> {
+    const active = this.getActiveTab();
+    if (!active) throw new Error('No active tab');
+    const cdp = this.debuggerManager.getClient(active.view.webContents);
+    const actions = new PageActions(cdp, active.view.webContents);
+    return actions.waitForSelector(selector, timeoutMs);
+  }
+
+  public async detectForms(): Promise<any[]> {
+    const active = this.getActiveTab();
+    if (!active) return [];
+    const cdp = this.debuggerManager.getClient(active.view.webContents);
+    const actions = new PageActions(cdp, active.view.webContents);
+    return actions.detectForms();
+  }
+
+  public async getAccessibilityTree(): Promise<any> {
+    const active = this.getActiveTab();
+    if (!active) return [];
+    const cdp = this.debuggerManager.getClient(active.view.webContents);
+    const actions = new PageActions(cdp, active.view.webContents);
+    return actions.getAccessibilityTree();
+  }
+
+  public async startWorkflowRecording(): Promise<{ status: string }> {
+    const active = this.getActiveTab();
+    if (!active) throw new Error('No active tab to record');
+    return WorkflowRecorder.getInstance().startRecording(active.view.webContents);
+  }
+
+  public async stopWorkflowRecording(): Promise<RecordedStep[]> {
+    return WorkflowRecorder.getInstance().stopRecording();
+  }
+
+  public isWorkflowRecording(): boolean {
+    return WorkflowRecorder.getInstance().getIsRecording();
   }
 
   public dispose(): void {

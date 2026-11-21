@@ -46,6 +46,7 @@ export const AssistantPanel: React.FC = () => {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState('nvidia_nim');
+  const [showTrace, setShowTrace] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -54,6 +55,18 @@ export const AssistantPanel: React.FC = () => {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [chatMessages, lastObservation, lastScreenshotUrl, activeAction]);
+
+  useEffect(() => {
+    const unsubPrompt = window.electronAPI?.onChatIncomingPrompt?.((prompt: string) => {
+      if (prompt) {
+        setInput(prompt);
+        if (textareaRef.current) {
+          textareaRef.current.focus();
+        }
+      }
+    });
+    return () => unsubPrompt?.();
+  }, []);
 
   const handleSend = async () => {
     if (!input.trim() || loading || isAgentRunning) return;
@@ -64,7 +77,7 @@ export const AssistantPanel: React.FC = () => {
     }
     setLoading(true);
     try {
-      await sendChatMessage(text);
+      await sendChatMessage(text, { provider: selectedProvider });
     } catch (err) {
       console.error(err);
     } finally {
@@ -110,31 +123,41 @@ export const AssistantPanel: React.FC = () => {
     }
   };
 
-  const handleQuickTradingView = async () => {
+  const handleDeepResearch = async () => {
     if (loading || isAgentRunning) return;
     setLoading(true);
     try {
-      await sendChatMessage(`Open TradingView (https://www.tradingview.com/chart/?symbol=NVDA) and analyze the NVDA daily chart.`);
+      await sendChatMessage(`Perform deep web research on: ${activeTab?.title || 'current topic'} and provide a cited comparison`, { provider: selectedProvider });
     } finally {
       setLoading(false);
     }
   };
 
-  const handleQuickOptionChain = async () => {
+  const handleQuickTableExtraction = async () => {
     if (loading || isAgentRunning) return;
     setLoading(true);
     try {
-      await sendChatMessage(`Extract option chain table data for SPY or current stock and export to CSV.`);
+      await sendChatMessage(`Extract all structured table and product records from this page and prepare export`, { provider: selectedProvider });
     } finally {
       setLoading(false);
     }
   };
 
-  const handleQuickGoogle = async () => {
+  const handleQuickCompare = async () => {
     if (loading || isAgentRunning) return;
     setLoading(true);
     try {
-      await sendChatMessage(`Open google.com`);
+      await sendChatMessage(`Compare the top options, specifications, prices, and pros/cons for this topic`, { provider: selectedProvider });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCompareTabs = async () => {
+    if (loading || isAgentRunning) return;
+    setLoading(true);
+    try {
+      await sendChatMessage(`Compare and synthesize content across all open browser tabs. Identify key differences, common themes, and provide a structured comparison with citations.`, { provider: selectedProvider });
     } finally {
       setLoading(false);
     }
@@ -159,6 +182,10 @@ export const AssistantPanel: React.FC = () => {
         <div className={styles.headerLeft}>
           <Sparkles size={16} style={{ color: 'var(--accent-primary)' }} />
           <span className={styles.headerTitle}>AI Autonomous Agent</span>
+          {isAgentRunning 
+            ? <span className={styles.modeBadge} style={{background:'#f59e0b'}}>MODE B: ACTION</span>
+            : <span className={styles.modeBadge} style={{background:'#10b981'}}>MODE A: RESEARCH</span>
+          }
         </div>
 
         <div className={styles.headerRight}>
@@ -205,7 +232,7 @@ export const AssistantPanel: React.FC = () => {
         <div className={`${styles.activeActionBanner} animate-slide-in-down`}>
           <div className={styles.pulseDot} />
           <span style={{ fontWeight: 500 }}>
-            Executing: <strong>{activeAction.action}</strong>
+            Running Step {activeAction.step_number || '?'}/{activeAction.total_steps || '?'}: <strong>{activeAction.action}</strong>
             {activeAction.parameters?.url ? ` (${activeAction.parameters.url})` : ''}
             {activeAction.parameters?.query ? ` "${activeAction.parameters.query}"` : ''}
             {activeAction.parameters?.question ? ` (${activeAction.parameters.question})` : ''}
@@ -213,11 +240,32 @@ export const AssistantPanel: React.FC = () => {
         </div>
       )}
 
+      {/* ReAct Thought/Plan Trace */}
+      {isAgentRunning && activeAction?.thought && (
+        <div className={styles.reactTrace}>
+          <div className={styles.reactTraceHeader} onClick={() => setShowTrace(t => !t)}>
+            <span>🧠 Agent Reasoning</span>
+            <span>{showTrace ? '▲' : '▼'}</span>
+          </div>
+          {showTrace && (
+            <div className={styles.reactTraceBody}>
+              <pre className={styles.reactThought}>{activeAction.thought}</pre>
+              {activeAction.plan && (
+                <div className={styles.reactPlan}>
+                  <strong>Plan:</strong>
+                  <pre>{activeAction.plan}</pre>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Sensitive Action Approval Dialog */}
       <ApprovalDialog
         isOpen={Boolean(activeAction && activeAction.status === 'approval_required')}
         actionTitle="Agent Requests Authorization"
-        reason={activeAction?.result || 'The autonomous agent is requesting permission to execute an action requiring user approval.'}
+        reason={activeAction?.result?.includes('RED TIER') ? `🔴 RED TIER — ${activeAction.result}` : (activeAction?.result || 'The autonomous agent is requesting permission to execute an action requiring user approval.')}
         toolName={activeAction?.action}
         parameters={activeAction?.parameters}
         onApprove={() => {
@@ -237,24 +285,29 @@ export const AssistantPanel: React.FC = () => {
 
       {/* Quick Action Chips */}
       <div className={styles.quickChips}>
-        <button onClick={handleQuickTradingView} className={styles.chipBtn}>
+        <button onClick={handleDeepResearch} className={styles.chipBtn}>
+          <Sparkles size={12} style={{ color: 'var(--accent-primary)' }} />
+          <span>🔍 Deep Research</span>
+        </button>
+
+        <button onClick={handleCompareTabs} className={styles.chipBtn}>
+          <Globe size={12} style={{ color: '#8b5cf6' }} />
+          <span>⚖️ Compare Tabs</span>
+        </button>
+
+        <button onClick={handleQuickCompare} className={styles.chipBtn}>
           <TrendingUp size={12} style={{ color: '#10b981' }} />
-          <span>TradingView NVDA</span>
+          <span>Compare Options</span>
         </button>
 
-        <button onClick={handleQuickOptionChain} className={styles.chipBtn}>
+        <button onClick={handleQuickTableExtraction} className={styles.chipBtn}>
           <Table size={12} style={{ color: '#f59e0b' }} />
-          <span>Option Chain</span>
-        </button>
-
-        <button onClick={handleQuickGoogle} className={styles.chipBtn}>
-          <Globe size={12} style={{ color: '#3b82f6' }} />
-          <span>Open Google</span>
+          <span>📊 Extract Table / CSV</span>
         </button>
 
         <button onClick={handleQuickSummarize} className={styles.chipBtn}>
           <FileText size={12} />
-          <span>Summarize Page</span>
+          <span>⚡ Summarize Page</span>
         </button>
 
         <button onClick={handleQuickInspect} className={styles.chipBtn}>

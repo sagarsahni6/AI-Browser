@@ -94,4 +94,12 @@ describe('useBrowserStore', () => {
     useBrowserStore.getState().setActiveAction(null);
     expect(useBrowserStore.getState().activeAction).toBeNull();
   });
+
+  it('guarantees assistantOpen is set to true when sendChatMessage is called', async () => {
+    useBrowserStore.getState().setAssistantOpen(false);
+    expect(useBrowserStore.getState().assistantOpen).toBe(false);
+
+    await useBrowserStore.getState().sendChatMessage('Find directions on Google Maps');
+    expect(useBrowserStore.getState().assistantOpen).toBe(true);
+  });
 });

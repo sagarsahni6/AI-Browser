@@ -19,7 +19,11 @@ import {
   Sun,
   Moon,
   Pin,
-  Copy
+  Copy,
+  BookOpen,
+  Workflow as WorkflowIcon,
+  ListTodo,
+  Settings
 } from 'lucide-react';
 import { useBrowserStore } from '../store/browser-store';
 import { CommandPalette } from '../components/CommandPalette';
@@ -33,6 +37,8 @@ export const ToolbarPanel: React.FC = () => {
     activeTabId,
     activeTab,
     sidebarOpen,
+    sidebarActiveTab,
+    setSidebarActiveTab,
     assistantOpen,
     backendStatus,
     isCurrentPageBookmarked,
@@ -338,6 +344,45 @@ export const ToolbarPanel: React.FC = () => {
 
         {/* Spacer */}
         <div style={{ flex: 1 }} />
+
+        {/* Quick Access Feature Buttons */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '3px', marginRight: '6px' }}>
+          <button
+            onClick={() => setSidebarActiveTab('research')}
+            className={cx(styles.featurePill, sidebarOpen && sidebarActiveTab === 'research' && styles.featurePillActive)}
+            title="Open Deep Research & Document Intelligence"
+          >
+            <BookOpen size={12} />
+            <span>Research</span>
+          </button>
+
+          <button
+            onClick={() => setSidebarActiveTab('workflows')}
+            className={cx(styles.featurePill, sidebarOpen && sidebarActiveTab === 'workflows' && styles.featurePillActive)}
+            title="Open Workflow Recorder & Visual Builder"
+          >
+            <WorkflowIcon size={12} />
+            <span>Workflows</span>
+          </button>
+
+          <button
+            onClick={() => setSidebarActiveTab('tasks')}
+            className={cx(styles.featurePill, sidebarOpen && sidebarActiveTab === 'tasks' && styles.featurePillActive)}
+            title="Open Agent Task Queue & Execution Dashboard"
+          >
+            <ListTodo size={12} />
+            <span>Tasks</span>
+          </button>
+
+          <button
+            onClick={() => setSidebarActiveTab('settings')}
+            className={cx(styles.featurePill, sidebarOpen && sidebarActiveTab === 'settings' && styles.featurePillActive)}
+            title="Open Browser & Agent Settings"
+          >
+            <Settings size={12} />
+            <span>Settings</span>
+          </button>
+        </div>
 
         {/* Backend Status indicator */}
         <div className={styles.statusBadge}>
