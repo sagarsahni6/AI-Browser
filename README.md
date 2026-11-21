@@ -78,7 +78,7 @@ flowchart TD
         Supervisor["Supervisor & Planner Multi-Agent"]
         HITL["ApprovalManager (3-Tier Security Gating)"]
         Memory["Episodic & Working Memory"]
-        DB[(SQLite / SQLAlchemy)]
+        DB[("SQLite Database")]
 
         RPCServer <--> Supervisor
         Supervisor <--> HITL
@@ -87,7 +87,7 @@ flowchart TD
         Memory <--> DB
     end
 
-    RPCClient <=== "Bidirectional stdio (stdin/stdout)" ===> RPCServer
+    RPCClient <-->|Bidirectional JSON-RPC stdio| RPCServer
 ```
 
 ---
