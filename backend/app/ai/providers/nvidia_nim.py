@@ -102,8 +102,8 @@ class NvidiaNimProvider(BaseAIProvider):
 
         payload_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8", "ignore")
 
-        timeout_seconds = 60.0
-        max_retries = 3
+        timeout_seconds = 25.0
+        max_retries = 2
 
         for attempt in range(max_retries):
             try:

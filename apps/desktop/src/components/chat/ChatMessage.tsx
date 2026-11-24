@@ -102,7 +102,14 @@ export const ChatMessageItem: React.FC<ChatMessageProps> = ({
         )}
 
         {/* Message Content */}
-        {isUser ? (
+        {!isUser && !displayContent.trim() ? (
+          <div className={styles.thinkingContainer}>
+            <span className={styles.thinkingDot} />
+            <span className={styles.thinkingDot} />
+            <span className={styles.thinkingDot} />
+            <span className={styles.thinkingText}>Thinking & executing...</span>
+          </div>
+        ) : isUser ? (
           <div style={{ whiteSpace: 'pre-wrap' }}>{displayContent}</div>
         ) : (
           <MarkdownRenderer content={displayContent} />

@@ -238,7 +238,10 @@ async def test_browser_use_no_duplicate_rerun_on_exception():
         task = await repo.create_task("BrowserUse Task", "Testing no rerun on failure")
         task_id = task.id
 
-    with patch("browser_use.Agent.run", side_effect=RuntimeError("CDP connection lost")), \
+    import sys
+    mock_bu = MagicMock()
+    mock_bu.Agent.run = AsyncMock(side_effect=RuntimeError("CDP connection lost"))
+    with patch.dict(sys.modules, {"browser_use": mock_bu}), \
          patch.object(SupervisorAgent, "run_task", new_callable=AsyncMock) as mock_supervisor_run:
         res = await BrowserUseEngine.execute_task(task_id, "Fail gracefully")
         assert res["status"] == "failed"

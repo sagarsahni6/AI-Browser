@@ -1,5 +1,6 @@
 import os
 import csv
+import asyncio
 from typing import Dict, Any, Optional
 from backend.app.browser.bridge import bridge
 from backend.app.security.approval import ApprovalManager
@@ -116,8 +117,10 @@ class ToolExecutor:
                 }, tool_name)
 
         try:
-            raw_res = await cls._execute_tool_action(tool_name, params)
+            raw_res = await asyncio.wait_for(cls._execute_tool_action(tool_name, params), timeout=15.0)
             return _normalize_response(raw_res, tool_name)
+        except asyncio.TimeoutError:
+            return _normalize_response({"status": "error", "error": f"Tool '{tool_name}' timed out after 15s"}, tool_name)
         except Exception as e:
             return _normalize_response({"status": "error", "error": str(e)}, tool_name)
 

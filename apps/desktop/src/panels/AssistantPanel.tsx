@@ -485,10 +485,21 @@ export const AssistantPanel: React.FC = () => {
           <div className={`${styles.activeActionBanner} animate-slide-in-down`}>
             <div className={styles.pulseDot} />
             <span style={{ fontWeight: 500 }}>
-              Running Step {activeAction.step_number || '?'}/{activeAction.total_steps || '?'}: <strong>{String(activeAction.action || '')}</strong>
-              {activeAction.parameters?.url ? ` (${typeof activeAction.parameters.url === 'string' ? activeAction.parameters.url : JSON.stringify(activeAction.parameters.url)})` : ''}
-              {activeAction.parameters?.query ? ` "${typeof activeAction.parameters.query === 'string' ? activeAction.parameters.query : JSON.stringify(activeAction.parameters.query)}"` : ''}
-              {activeAction.parameters?.question ? ` (${typeof activeAction.parameters.question === 'string' ? activeAction.parameters.question : JSON.stringify(activeAction.parameters.question)})` : ''}
+              {activeAction.action === 'synthesizing' ? (
+                <>🧠 <strong>Synthesizing final response...</strong></>
+              ) : activeAction.status === 'completed' ? (
+                <>✓ Completed: <strong>{String(activeAction.action || '')}</strong> — Synthesizing answer...</>
+              ) : (
+                <>
+                  {activeAction.step_number && activeAction.step_number !== '?'
+                    ? `Running Step ${activeAction.step_number}/${activeAction.total_steps || '?'}: `
+                    : 'Executing: '}
+                  <strong>{String(activeAction.action || '')}</strong>
+                  {activeAction.parameters?.url ? ` (${typeof activeAction.parameters.url === 'string' ? activeAction.parameters.url : JSON.stringify(activeAction.parameters.url)})` : ''}
+                  {activeAction.parameters?.query ? ` "${typeof activeAction.parameters.query === 'string' ? activeAction.parameters.query : JSON.stringify(activeAction.parameters.query)}"` : ''}
+                  {activeAction.parameters?.question ? ` (${typeof activeAction.parameters.question === 'string' ? activeAction.parameters.question : JSON.stringify(activeAction.parameters.question)})` : ''}
+                </>
+              )}
             </span>
           </div>
         </ProgressBanner>

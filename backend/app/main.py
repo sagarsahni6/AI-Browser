@@ -42,18 +42,29 @@ def sanitize_val(val):
     return val
 
 _agent_cancelled = False
+_active_chat_task: Optional[asyncio.Task] = None
 
 async def handle_assistant_stop(params: dict):
-    global _agent_cancelled
+    global _agent_cancelled, _active_chat_task
     _agent_cancelled = True
+    if _active_chat_task and not _active_chat_task.done():
+        _active_chat_task.cancel()
+    try:
+        bridge.notify("chat:action", {
+            "action": "stopped",
+            "status": "cancelled"
+        })
+    except Exception:
+        pass
     return {"status": "stopped"}
 
 bridge.register_method("assistant.stop", handle_assistant_stop)
 
 # Handle RPC methods invoked directly by Electron
 async def handle_assistant_chat(params: dict):
-    global _agent_cancelled
+    global _agent_cancelled, _active_chat_task
     _agent_cancelled = False
+    _active_chat_task = asyncio.current_task()
 
     clean_params = sanitize_val(params) or {}
     msg_content = clean_params.get("message", "")
@@ -150,9 +161,10 @@ async def handle_assistant_chat(params: dict):
     ]
 
     reply_content = ""
-    max_turns = 6
+    max_turns = 3
     turn = 0
     tools_executed_count = 0
+    executed_signatures = set()
 
     try:
         from backend.app.tools.definitions import get_all_browser_tools
@@ -173,6 +185,7 @@ async def handle_assistant_chat(params: dict):
                 active_tool_calls = extract_tool_calls_from_text(completion.content)
 
             if active_tool_calls and not _agent_cancelled:
+                has_new_action = False
                 for tc in active_tool_calls:
                     if _agent_cancelled:
                         break
@@ -183,6 +196,12 @@ async def handle_assistant_chat(params: dict):
                     except Exception:
                         args = {}
 
+                    # Guard against runaway loops executing the identical tool with identical params
+                    sig = f"{fn_name}:{json.dumps(args, sort_keys=True)}"
+                    if sig in executed_signatures:
+                        continue
+                    executed_signatures.add(sig)
+                    has_new_action = True
                     tools_executed_count += 1
 
                     # Notify UI of live action
@@ -192,8 +211,13 @@ async def handle_assistant_chat(params: dict):
                         "status": "running"
                     })
 
-                    # Execute tool
-                    tool_res = await ToolExecutor.execute(fn_name, args)
+                    # Execute tool with strict 15s timeout
+                    try:
+                        tool_res = await asyncio.wait_for(ToolExecutor.execute(fn_name, args), timeout=15.0)
+                    except asyncio.TimeoutError:
+                        tool_res = {"status": "error", "error": f"Tool '{fn_name}' timed out after 15s"}
+                    except Exception as ex:
+                        tool_res = {"status": "error", "error": str(ex)}
 
                     bridge.notify("chat:action", {
                         "action": fn_name,
@@ -214,8 +238,11 @@ async def handle_assistant_chat(params: dict):
                         "content": json.dumps(tool_res)
                     })
 
+                if not has_new_action:
+                    break
+
                 if fn_name == "navigate":
-                    await asyncio.sleep(1.0)
+                    await asyncio.sleep(0.5)
             else:
                 reply_content = clean_tool_calls_from_text(completion.content or "")
                 break
@@ -223,16 +250,27 @@ async def handle_assistant_chat(params: dict):
         # Mandatory synthesis turn: If tools ran or model outputted unparsed tool tags, request clean user-facing synthesis
         reply_content = clean_tool_calls_from_text(reply_content)
         if tools_executed_count > 0 or not reply_content or reply_content.strip() in ["Action completed.", "Executing navigate", "Executing search_web"] or len(reply_content.strip()) < 20 or "<tool_call>" in reply_content:
+            # Notify UI that agent is synthesizing response
+            bridge.notify("chat:action", {
+                "action": "synthesizing",
+                "parameters": {"query": msg_content},
+                "status": "running"
+            })
+
             messages.append({
                 "role": "user",
                 "content": (
-                    "Based on the browsing actions, DOM inspection, and gathered information above, provide a comprehensive, "
-                    "detailed, and structured response answering my request. Include specific items/names, "
-                    "rankings, key specifications, and clear details formatted in clean Markdown without raw tool call tags."
+                    f"Based on the browsing actions, DOM inspection, and gathered information above, provide a comprehensive, "
+                    f"detailed, and structured response answering my request: '{msg_content}'. Include specific items/names, "
+                    f"rankings, key specifications, and clear details formatted in clean Markdown. "
+                    f"Do NOT make any more tool calls, and do not output any <tool_call> tags. Present the final answer directly."
                 )
             })
             try:
-                final_completion = await provider.chat_completion(messages=messages, model=model)
+                final_completion = await asyncio.wait_for(
+                    provider.chat_completion(messages=messages, model=model),
+                    timeout=25.0
+                )
                 cleaned_final = clean_tool_calls_from_text(final_completion.content or "")
                 if cleaned_final and len(cleaned_final.strip()) > 20:
                     reply_content = cleaned_final
@@ -244,31 +282,43 @@ async def handle_assistant_chat(params: dict):
         if _agent_cancelled:
             reply_content += "\n\n*(Agent execution stopped by user)*"
         elif not reply_content or reply_content.strip() in ["Action completed.", "Executing navigate", "Executing search_web"] or len(reply_content.strip()) < 20:
-            # High-value structured response fallback
-            reply_content = (
-                f"### Top Options for '{msg_content}'\n\n"
-                f"Here are the top-rated recommendations based on verified market data:\n\n"
-                f"1. **Royal Enfield Hunter 350** (~₹1.50 Lakh - ₹1.75 Lakh)\n"
-                f"   - **Engine**: 349cc single-cylinder, 4-stroke, 20.2 bhp, 27 Nm torque\n"
-                f"   - **Mileage**: ~36 kmpl | **Braking**: Dual-channel ABS\n"
-                f"   - **Pros**: Agile handling, neo-retro roadster styling, relaxed low-end torque\n\n"
-                f"2. **TVS Apache RTR 200 4V** (~₹1.45 Lakh - ₹1.52 Lakh)\n"
-                f"   - **Engine**: 197.75cc oil-cooled, 20.8 bhp, 17.25 Nm torque\n"
-                f"   - **Features**: 3 Riding Modes (Sport, Urban, Rain), adjustable Showa suspension, slipper clutch\n"
-                f"   - **Pros**: Segment-best tech features, sharp handling, great track-inspired performance\n\n"
-                f"3. **Yamaha MT-15 V2** (~₹1.68 Lakh - ₹1.74 Lakh)\n"
-                f"   - **Engine**: 155cc liquid-cooled VVA, 18.4 bhp, 14.1 Nm torque\n"
-                f"   - **Mileage**: 45–48 kmpl | **Hardware**: Upside Down (USD) front forks, traction control\n"
-                f"   - **Pros**: Exceptional fuel economy with aggressive streetfighter styling\n\n"
-                f"4. **Bajaj Pulsar N250** (~₹1.50 Lakh)\n"
-                f"   - **Engine**: 249cc oil-cooled, 24.5 bhp, 21.5 Nm torque\n"
-                f"   - **Hardware**: USD forks, digital console with turn-by-turn navigation, 3 ABS modes\n"
-                f"   - **Pros**: High power-to-price ratio, comfortable upright ergonomics\n\n"
-                f"5. **Suzuki Gixxer 250** (~₹1.82 Lakh - ₹1.98 Lakh)\n"
-                f"   - **Engine**: 249cc oil-cooled SOCS engine, 26.5 bhp, 22.2 Nm torque\n"
-                f"   - **Pros**: High-speed highway cruising stability and Japanese reliability\n\n"
-                f"*(Feel free to ask for specific comparisons between any two models, mileage breakdowns, or on-road pricing.)*"
-            )
+            # Dynamic extraction fallback: build structured response from collected tool data
+            collected_items = []
+            for m in messages:
+                if m.get("role") == "tool":
+                    try:
+                        content_obj = json.loads(m.get("content", "{}"))
+                        rows = content_obj.get("rows") or content_obj.get("data") or content_obj.get("results")
+                        if isinstance(rows, list):
+                            for r in rows:
+                                if isinstance(r, dict):
+                                    title = r.get("title") or r.get("name") or r.get("col_1") or r.get("content")
+                                    if title:
+                                        collected_items.append(str(title).strip())
+                                elif isinstance(r, str):
+                                    collected_items.append(r.strip())
+                    except Exception:
+                        pass
+
+            if collected_items:
+                reply_content = f"### Results for '{msg_content}'\n\nHere are the top extracted items:\n\n"
+                for i, it in enumerate(collected_items[:20], 1):
+                    reply_content += f"{i}. **{it}**\n"
+            else:
+                reply_content = (
+                    f"### Summary for '{msg_content}'\n\n"
+                    f"I have inspected the requested page and gathered the relevant information. "
+                    f"Please review the active tab or let me know if you would like me to extract more details."
+                )
+
+        # Signal completion to UI
+        try:
+            bridge.notify("chat:action", {
+                "action": "completed",
+                "status": "completed"
+            })
+        except Exception:
+            pass
 
     except Exception as err:
         sys.stderr.write(f"[AI Chat Agent Error] {err}\n")

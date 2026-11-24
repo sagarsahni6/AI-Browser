@@ -4,7 +4,10 @@ import re
 import logging
 from typing import Dict, Any, List, Optional
 import httpx
-from pypdf import PdfReader
+try:
+    from pypdf import PdfReader
+except ImportError:
+    PdfReader = None
 
 logger = logging.getLogger("pdf_service")
 
@@ -32,6 +35,8 @@ class PDFService:
         Extract page-level text and document metadata from a local or remote PDF.
         """
         try:
+            if not PdfReader:
+                return {"status": "error", "error": "pypdf package not installed"}
             pdf_bytes = await cls._get_pdf_bytes(path_or_url)
             reader = PdfReader(io.BytesIO(pdf_bytes))
             
