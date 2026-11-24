@@ -157,6 +157,8 @@ async def handle_assistant_chat(params: dict):
     try:
         from backend.app.tools.definitions import get_all_browser_tools
         active_tools = get_all_browser_tools()
+        from backend.app.ai.tool_call_parser import extract_tool_calls_from_text, clean_tool_calls_from_text
+
         while turn < max_turns and not _agent_cancelled:
             turn += 1
             completion = await provider.chat_completion(
@@ -165,8 +167,13 @@ async def handle_assistant_chat(params: dict):
                 tools=active_tools
             )
 
-            if completion.tool_calls and not _agent_cancelled:
-                for tc in completion.tool_calls:
+            # Symmetrically extract tool calls from structured schema OR raw model text
+            active_tool_calls = completion.tool_calls
+            if not active_tool_calls and completion.content:
+                active_tool_calls = extract_tool_calls_from_text(completion.content)
+
+            if active_tool_calls and not _agent_cancelled:
+                for tc in active_tool_calls:
                     if _agent_cancelled:
                         break
                     fn_name = tc.get("function", {}).get("name")
@@ -197,7 +204,7 @@ async def handle_assistant_chat(params: dict):
 
                     messages.append({
                         "role": "assistant",
-                        "content": completion.content or f"Executing {fn_name}",
+                        "content": clean_tool_calls_from_text(completion.content or "") or f"Executing {fn_name}",
                         "tool_calls": [tc]
                     })
                     messages.append({
@@ -210,25 +217,29 @@ async def handle_assistant_chat(params: dict):
                 if fn_name == "navigate":
                     await asyncio.sleep(1.0)
             else:
-                reply_content = completion.content or ""
+                reply_content = clean_tool_calls_from_text(completion.content or "")
                 break
 
-        # Mandatory synthesis turn: If tools ran and model didn't provide a substantive text answer, ask for synthesis
-        if not reply_content or reply_content.strip() in ["Action completed.", "Executing navigate", "Executing search_web"] or len(reply_content.strip()) < 20:
+        # Mandatory synthesis turn: If tools ran or model outputted unparsed tool tags, request clean user-facing synthesis
+        reply_content = clean_tool_calls_from_text(reply_content)
+        if tools_executed_count > 0 or not reply_content or reply_content.strip() in ["Action completed.", "Executing navigate", "Executing search_web"] or len(reply_content.strip()) < 20 or "<tool_call>" in reply_content:
             messages.append({
                 "role": "user",
                 "content": (
-                    "Based on the browsing actions, web search results, and gathered information above, provide a comprehensive, "
-                    "detailed, and structured response answering my request. Include specific items/models, "
-                    "key specifications, prices, pros and cons, and clear recommendations formatted in clean Markdown."
+                    "Based on the browsing actions, DOM inspection, and gathered information above, provide a comprehensive, "
+                    "detailed, and structured response answering my request. Include specific items/names, "
+                    "rankings, key specifications, and clear details formatted in clean Markdown without raw tool call tags."
                 )
             })
             try:
                 final_completion = await provider.chat_completion(messages=messages, model=model)
-                if final_completion.content and len(final_completion.content.strip()) > 20:
-                    reply_content = final_completion.content
+                cleaned_final = clean_tool_calls_from_text(final_completion.content or "")
+                if cleaned_final and len(cleaned_final.strip()) > 20:
+                    reply_content = cleaned_final
             except Exception as e:
                 sys.stderr.write(f"[Synthesis turn failed] {e}\n")
+
+        reply_content = clean_tool_calls_from_text(reply_content)
 
         if _agent_cancelled:
             reply_content += "\n\n*(Agent execution stopped by user)*"

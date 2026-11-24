@@ -90,10 +90,18 @@ class OpenAICompatibleProvider(BaseAIProvider):
             data = resp.json()
             choice = data["choices"][0]
             msg = choice.get("message", {})
+            raw_content = msg.get("content") or ""
+            tool_calls = msg.get("tool_calls")
+            if not tool_calls and raw_content:
+                try:
+                    from backend.app.ai.tool_call_parser import extract_tool_calls_from_text
+                    tool_calls = extract_tool_calls_from_text(raw_content) or None
+                except Exception:
+                    pass
             return ChatCompletionResult(
-                content=msg.get("content") or "",
+                content=raw_content,
                 model=data.get("model", target_model),
-                tool_calls=msg.get("tool_calls"),
+                tool_calls=tool_calls,
                 finish_reason=choice.get("finish_reason"),
                 usage=data.get("usage")
             )

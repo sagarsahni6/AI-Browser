@@ -3,9 +3,40 @@ import React from 'react';
 import { renderToString } from 'react-dom/server';
 import { ApprovalDialog } from '../src/components/ApprovalDialog';
 import { MarkdownRenderer } from '../src/components/chat/MarkdownRenderer';
+import { ChatMessageItem } from '../src/components/chat/ChatMessage';
 import { ErrorBoundary } from '../src/components/ErrorBoundary';
 
 describe('Chat Box & Assistant Panel Resilience Tests', () => {
+  it('safely cleans and handles raw <tool_call> tags in ChatMessageItem', () => {
+    const rawToolCallContent = `<tool_call>
+<function=evaluate_javascript>
+<parameter=script>
+console.log('test');
+</parameter>
+</function>
+</tool_call>
+Here are the top 50 Bollywood movies:
+1. Sholay
+2. Dangal`;
+
+    const html = renderToString(
+      React.createElement(ChatMessageItem, {
+        id: 'msg-1',
+        sender: 'assistant',
+        content: rawToolCallContent,
+        timestamp: Date.now()
+      })
+    );
+
+    // Should NOT contain raw <tool_call> markup
+    expect(html).not.toContain('<tool_call>');
+    expect(html).not.toContain('</tool_call>');
+    // Should display the cleaned response and tool badge
+    expect(html).toContain('Here are the top 50 Bollywood movies');
+    expect(html).toContain('Automated Action:');
+    expect(html).toContain('evaluate_javascript');
+  });
+
   it('safely renders ApprovalDialog with dictionary/object reason and parameters without throwing', () => {
     const objectReason = {
       status: 'success',

@@ -272,7 +272,39 @@ class ToolExecutor:
 
         elif tool_name == "evaluate_javascript":
             script = params.get("script", "")
-            payload = {"script": script}
+            target_url = params.get("url")
+            if target_url:
+                try:
+                    current_obs = await bridge.call("browser.inspect", {})
+                    curr_url = current_obs.get("url", "") if current_obs else ""
+                    if curr_url != target_url and not curr_url.startswith(target_url):
+                        await bridge.call("browser.navigate", {"url": target_url})
+                        await asyncio.sleep(1.5)
+                except Exception:
+                    pass
+
+            # Wrap script to capture console.log and return values seamlessly
+            wrapped_script = f"""
+            (() => {{
+                const _logs = [];
+                const _origLog = console.log;
+                try {{
+                    console.log = (...args) => {{
+                        _logs.push(args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
+                        _origLog.apply(console, args);
+                    }};
+                    const _evalRes = eval({json.dumps(script)});
+                    if (_evalRes !== undefined && _evalRes !== null) return _evalRes;
+                    if (_logs.length > 0) return _logs.join('\\n');
+                    return null;
+                }} catch (e) {{
+                    return "Error evaluating script: " + e.message;
+                }} finally {{
+                    console.log = _origLog;
+                }}
+            }})()
+            """
+            payload = {"script": wrapped_script}
             if tab_id:
                 payload["tab_id"] = tab_id
             res = await bridge.call("browser.evaluate_js", payload)
