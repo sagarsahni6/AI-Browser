@@ -603,3 +603,13 @@ BROWSER_TOOLS: List[Dict[str, Any]] = [
         }
     }
 ]
+
+
+def get_all_browser_tools() -> List[Dict[str, Any]]:
+    """Returns core BROWSER_TOOLS combined with all active skills' tools."""
+    try:
+        from backend.app.skills.registry import skill_registry
+        return BROWSER_TOOLS + skill_registry.get_all_active_tools()
+    except Exception:
+        return BROWSER_TOOLS
+

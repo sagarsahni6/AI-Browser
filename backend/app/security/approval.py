@@ -29,6 +29,19 @@ class ApprovalManager:
         Returns (requires_approval, reason).
         Implements COMET 3-tier HITL security model (GREEN / YELLOW / RED).
         """
+        # ---- SKILL TOOLS: Evaluate registered skill risk tiers ----
+        try:
+            from backend.app.skills.registry import skill_registry
+            if skill_registry.is_skill_tool(tool_name):
+                tier = skill_registry.get_tool_risk_tier(tool_name)
+                if tier == "red":
+                    return True, f"RED TIER: Sensitive skill action '{tool_name}' requires explicit user approval."
+                elif tier == "yellow":
+                    return False, f"YELLOW TIER: Notify - executing skill action '{tool_name}' with user visibility."
+                elif tier == "green":
+                    return False, f"GREEN TIER: Autonomous execution permitted for '{tool_name}'."
+        except Exception:
+            pass
 
         # ---- GREEN TIER: fully autonomous read-only tools ----
         if tool_name in ApprovalManager.GREEN_TIER_TOOLS:

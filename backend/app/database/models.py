@@ -40,6 +40,9 @@ class AgentTask(Base):
     error = Column(Text, nullable=True)
     created_at = Column(Float, default=time.time, index=True)
     completed_at = Column(Float, nullable=True)
+    # LangGraph integration columns (nullable — existing rows unaffected)
+    graph_thread_id = Column(String(128), nullable=True, index=True)
+    lg_checkpoint_id = Column(String(128), nullable=True)
 
     steps = relationship("TaskStep", back_populates="task", cascade="all, delete-orphan", order_by="TaskStep.step_number")
     approvals = relationship("ApprovalRequest", back_populates="task", cascade="all, delete-orphan")
@@ -65,11 +68,15 @@ class ApprovalRequest(Base):
 
     id = Column(String(64), primary_key=True)
     task_id = Column(String(64), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True)
+    step_number = Column(Integer, nullable=True)
     tool_name = Column(String(64), nullable=False)
-    action_type = Column(String(64), nullable=False) # financial, credential, data_export, navigation
+    action_type = Column(String(64), nullable=False) # financial, credential, data_export, navigation, sensitive_operation
     description = Column(Text, nullable=False)
     parameters_json = Column(Text, nullable=True)
-    status = Column(String(32), nullable=False, default="pending", index=True) # pending, approved, rejected
+    session_checkpoint_json = Column(Text, nullable=True)
+    status = Column(String(32), nullable=False, default="pending", index=True) # pending, approved, rejected, executed, failed
+    resolved_at = Column(Float, nullable=True)
+    error = Column(Text, nullable=True)
     created_at = Column(Float, default=time.time)
 
     task = relationship("AgentTask", back_populates="approvals")
@@ -172,7 +179,24 @@ class DesktopAuditLog(Base):
 
     id = Column(String(64), primary_key=True)
     action = Column(String(64), nullable=False) # mouse_click, key_press, screen_capture, app_launch
+    action_type = Column(String(64), nullable=True) # normalized action type
+    target = Column(String(255), nullable=True)
+    status = Column(String(32), nullable=True) # authorized, denied, completed, failed
+    duration_ms = Column(Float, nullable=True)
     parameters_json = Column(Text, nullable=True)
     authorized = Column(Boolean, default=True)
     result = Column(Text, nullable=True)
     timestamp = Column(Float, default=time.time, index=True)
+
+class RuntimeCheckpoint(Base):
+    __tablename__ = "runtime_checkpoints"
+
+    id = Column(String(64), primary_key=True)
+    task_id = Column(String(64), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True)
+    step_number = Column(Integer, nullable=False, default=0)
+    state_json = Column(Text, nullable=False)
+    created_at = Column(Float, default=time.time)
+    updated_at = Column(Float, default=time.time, index=True)
+
+    task = relationship("AgentTask", backref="runtime_checkpoints")
+

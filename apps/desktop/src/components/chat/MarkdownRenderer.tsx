@@ -7,8 +7,10 @@ interface MarkdownRendererProps {
   onCitationClick?: (index: number) => void;
 }
 
-export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, onCitationClick }) => {
+export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content = '', onCitationClick }) => {
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+
+  const safeContent = typeof content === 'string' ? content : (content ? JSON.stringify(content, null, 2) : '');
 
   const handleCopyCode = (text: string, index: number) => {
     navigator.clipboard.writeText(text);
@@ -17,15 +19,16 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, onC
   };
 
   const renderInline = (text: string): React.ReactNode[] => {
+    const safeText = typeof text === 'string' ? text : String(text || '');
     // Regex for inline code, citations [1], bold **text**, and links [text](url)
     const tokenRegex = /(`[^`]+`)|(\[\d+\])|(\*\*[^*]+\*\*)|(\[[^\]]+\]\([^)]+\))/g;
     const parts: React.ReactNode[] = [];
     let lastIndex = 0;
     let match: RegExpExecArray | null;
 
-    while ((match = tokenRegex.exec(text)) !== null) {
+    while ((match = tokenRegex.exec(safeText)) !== null) {
       if (match.index > lastIndex) {
-        parts.push(text.slice(lastIndex, match.index));
+        parts.push(safeText.slice(lastIndex, match.index));
       }
 
       const matchText = match[0];
@@ -83,7 +86,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, onC
   };
 
   const renderBlocks = () => {
-    const lines = content.split('\n');
+    const lines = safeContent.split('\n');
     const elements: React.ReactNode[] = [];
     let i = 0;
     let blockIndex = 0;

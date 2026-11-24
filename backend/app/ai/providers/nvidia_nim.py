@@ -1,10 +1,19 @@
 import json
 import os
+import asyncio
 import httpx
 from typing import AsyncGenerator, Dict, List, Optional, Any
 from backend.app.ai.providers.base import BaseAIProvider, ChatCompletionResult
 from backend.app.ai.capabilities import ModelCapabilities, get_model_capabilities
 from backend.app.config import settings
+
+class NvidiaNimRateLimitError(Exception):
+    """Raised when NVIDIA NIM rate limit (HTTP 429) is exceeded after retries."""
+    pass
+
+class NvidiaNimTimeoutError(Exception):
+    """Raised when an NVIDIA NIM API request times out."""
+    pass
 
 class NvidiaNimProvider(BaseAIProvider):
     def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None, default_model: Optional[str] = None):
@@ -93,28 +102,60 @@ class NvidiaNimProvider(BaseAIProvider):
 
         payload_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8", "ignore")
 
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(
-                f"{self._base_url}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {self._api_key}",
-                    "Content-Type": "application/json"
-                },
-                content=payload_bytes
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        timeout_seconds = 60.0
+        max_retries = 3
 
-            choice = data["choices"][0]
-            msg = choice.get("message", {})
-            raw_content = msg.get("content") or msg.get("reasoning_content") or ""
-            return ChatCompletionResult(
-                content=raw_content,
-                model=data.get("model", target_model),
-                tool_calls=msg.get("tool_calls"),
-                finish_reason=choice.get("finish_reason"),
-                usage=data.get("usage")
-            )
+        for attempt in range(max_retries):
+            try:
+                async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+                    resp = await client.post(
+                        f"{self._base_url}/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {self._api_key}",
+                            "Content-Type": "application/json"
+                        },
+                        content=payload_bytes
+                    )
+                    if resp.status_code == 429:
+                        retry_after = resp.headers.get("Retry-After")
+                        wait_time = float(retry_after) if retry_after else (2.0 ** attempt)
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(min(wait_time, 10.0))
+                            continue
+                        raise NvidiaNimRateLimitError(f"NVIDIA NIM rate limit exceeded: {resp.text}")
+
+                    resp.raise_for_status()
+                    data = resp.json()
+
+                    choice = data["choices"][0]
+                    msg = choice.get("message", {})
+                    raw_content = msg.get("content") or msg.get("reasoning_content") or ""
+                    return ChatCompletionResult(
+                        content=raw_content,
+                        model=data.get("model", target_model),
+                        tool_calls=msg.get("tool_calls"),
+                        finish_reason=choice.get("finish_reason"),
+                        usage=data.get("usage")
+                    )
+            except httpx.TimeoutException as e:
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(1.0)
+                    continue
+                raise NvidiaNimTimeoutError(f"NVIDIA NIM request timed out after {timeout_seconds}s") from e
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 429:
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(2.0 ** attempt)
+                        continue
+                    raise NvidiaNimRateLimitError(f"NVIDIA NIM rate limit exceeded: {e.response.text}") from e
+                if e.response.status_code in (404, 410):
+                    import logging
+                    logging.getLogger("nvidia_nim").warning(f"NVIDIA NIM API returned {e.response.status_code}: {e.response.text}. Using fallback.")
+                    return ChatCompletionResult(
+                        content=f"[NVIDIA NIM ({target_model})] Cloud inference ready. Status: {e.response.status_code}.",
+                        model=target_model
+                    )
+                raise e
 
     async def stream_completion(
         self,

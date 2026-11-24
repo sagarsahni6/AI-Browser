@@ -140,6 +140,12 @@ export interface ElectronAPI {
   onToggleCommandPalette?: (callback: () => void) => () => void;
   onLaserIndicator?: (callback: (coords: { x: number; y: number }) => void) => () => void;
   sendApprovalResponse?: (payload: { taskId: string; approved: boolean; reason?: string }) => Promise<any>;
+
+  // Agent Skills Architecture
+  listSkills?: () => Promise<any[]>;
+  toggleSkill?: (skillId: string, enabled?: boolean) => Promise<{ skill_id: string; enabled: boolean }>;
+  executeSkill?: (toolName: string, params?: any) => Promise<any>;
+  onSkillsChanged?: (callback: (data: any) => void) => () => void;
 }
 
 declare global {

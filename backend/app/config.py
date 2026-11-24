@@ -21,9 +21,10 @@ class Settings(BaseSettings):
     # AI Provider Settings (NVIDIA NIM)
     NVIDIA_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
     NVIDIA_API_KEY: Optional[str] = None
-    NVIDIA_MODEL: str = "nvidia/nemotron-3.5-lightning-30b-a3b"
-    NVIDIA_VISION_MODEL: str = "nvidia/nemotron-3.5-super-vl-120b-a12b"
-    NVIDIA_REASONING_MODEL: str = "mistralai/mistral-large-4-1t-a52b"
+    NVIDIA_MODEL: str = "meta/llama-3.3-70b-instruct"
+    NVIDIA_VISION_MODEL: str = "meta/llama-3.2-90b-vision-instruct"
+    NVIDIA_LIGHTWEIGHT_MODEL: str = "meta/llama-3.1-8b-instruct"
+    NVIDIA_REASONING_MODEL: str = "meta/llama-3.3-70b-instruct"
 
     # OpenAI Fallback
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
@@ -52,10 +53,13 @@ class Settings(BaseSettings):
     # Browser Use Integration
     BROWSER_USE_API_KEY: Optional[str] = None
     BROWSER_USE_CDP_URL: str = "http://127.0.0.1:9222"
-    DEFAULT_AGENT_ENGINE: str = "browser_use"
+    DEFAULT_AGENT_ENGINE: str = "native"
 
     # Database
     DATABASE_URL: str = "sqlite+aiosqlite:///./ai_browser.db"
+
+    # Hermes Gateway Token
+    HERMES_GATEWAY_TOKEN: str = "hermes-local-gateway-token"
 
     model_config = SettingsConfigDict(
         env_file=_env_file,

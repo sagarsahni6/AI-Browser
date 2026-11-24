@@ -11,6 +11,7 @@ from backend.app.browser.bridge import bridge
 from backend.app.database.engine import AsyncSessionLocal
 from backend.app.database.repository import Repository
 from backend.app.security.approval import ApprovalManager
+from backend.app.tools.executor import ToolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -113,16 +114,19 @@ class BrowserUseEngine:
 
         @controller.action("Export structured table records into a local CSV file")
         async def export_data_table(title: str, headers: List[str], rows: List[List[str]]) -> ActionResult:
-            export_dir = Path.cwd() / "data"
-            export_dir.mkdir(parents=True, exist_ok=True)
+            # Route through central ToolExecutor and policy engine
             safe_title = "".join(c if c.isalnum() or c in "-_" else "_" for c in title)
-            file_path = export_dir / f"{safe_title}_{task_id[:8]}.csv"
+            res = await ToolExecutor.execute("export_csv", {
+                "filename": f"{safe_title}_{task_id[:8]}.csv",
+                "headers": headers,
+                "rows": rows
+            })
+            if res.get("status") == "approval_required":
+                return ActionResult(extracted_content="Action paused: waiting for human approval from the user.")
+            if res.get("status") == "error":
+                return ActionResult(error=f"Failed to export CSV: {res.get('error')}")
 
-            with open(file_path, "w", newline="", encoding="utf-8") as f:
-                writer = csv.writer(f)
-                writer.writerow(headers)
-                writer.writerows(rows)
-
+            file_path = res.get("exported_file", "")
             bridge.notify("browser.file_exported", {
                 "file_path": str(file_path),
                 "format": "csv",
@@ -136,18 +140,23 @@ class BrowserUseEngine:
 
         @controller.action("Export structured JSON items into a local file")
         async def export_json_data(title: str, items_json: str) -> ActionResult:
-            export_dir = Path.cwd() / "data"
-            export_dir.mkdir(parents=True, exist_ok=True)
+            # Route through central ToolExecutor and policy engine
             safe_title = "".join(c if c.isalnum() or c in "-_" else "_" for c in title)
-            file_path = export_dir / f"{safe_title}_{task_id[:8]}.json"
-
             try:
                 parsed = json.loads(items_json)
-                with open(file_path, "w", encoding="utf-8") as f:
-                    json.dump(parsed, f, indent=2)
-                return ActionResult(extracted_content=f"Exported JSON file to {file_path}")
             except Exception as e:
-                return ActionResult(error=f"Failed to export JSON: {e}")
+                return ActionResult(error=f"Invalid JSON: {e}")
+
+            res = await ToolExecutor.execute("export_data", {
+                "filename": f"{safe_title}_{task_id[:8]}.json",
+                "data": parsed if isinstance(parsed, list) else [parsed],
+                "format": "json"
+            })
+            if res.get("status") == "approval_required":
+                return ActionResult(extracted_content="Action paused: waiting for human approval from the user.")
+            if res.get("status") == "error":
+                return ActionResult(error=f"Failed to export JSON: {res.get('error')}")
+            return ActionResult(extracted_content=f"Exported JSON file successfully")
 
         @controller.action("Switch active browser tab by tab ID")
         async def switch_browser_tab(tab_id: str) -> ActionResult:
@@ -267,16 +276,13 @@ class BrowserUseEngine:
             }
 
         except Exception as e:
-            logger.warning(f"[BrowserUseEngine] Direct browser-use run failed ({e}). Falling back to native SupervisorAgent...")
-            from backend.app.agents.supervisor import SupervisorAgent
-            # Native fallback ensures 100% resilience
-            await SupervisorAgent.run_task(task_id)
+            logger.warning(f"[BrowserUseEngine] Direct browser-use run failed ({e}).")
             async with AsyncSessionLocal() as session:
                 repo = Repository(session)
-                task = await repo.get_task(task_id)
-                return {
-                    "status": task.status if task else "completed",
-                    "task_id": task_id,
-                    "result": task.result if task else str(e),
-                    "fallback_used": True
-                }
+                await repo.update_task_status(task_id, status="failed", error=str(e))
+            return {
+                "status": "failed",
+                "task_id": task_id,
+                "error": str(e),
+                "fallback_used": False
+            }

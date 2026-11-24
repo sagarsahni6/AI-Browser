@@ -1,7 +1,13 @@
-from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional, Literal
+from pydantic import BaseModel, Field, field_validator
+from typing import List, Dict, Any, Optional, Literal, Set
 from enum import Enum
 from datetime import datetime
+
+ALLOWED_AGENTS: Set[str] = {
+    "supervisor", "planner", "browser", "dom", "vision", "desktop",
+    "file", "memory", "recovery", "data", "data_agent",
+    "researcher", "verifier", "browser_agent", "browser_use_agent"
+}
 
 class StepStatus(str, Enum):
     PENDING = "pending"
@@ -13,15 +19,36 @@ class StepStatus(str, Enum):
 
 class TaskStep(BaseModel):
     id: int
-    agent: Literal["browser", "researcher", "data", "verifier", "supervisor"] = "browser"
+    agent: str = Field(default="browser", description="Specialist agent: browser, dom, vision, desktop, file, memory, recovery, data, researcher, verifier, supervisor")
     action: str
     description: str
     parameters: Dict[str, Any] = Field(default_factory=dict)
+    dependencies: List[int] = Field(default_factory=list, description="IDs of preceding steps this step depends on")
+    verification_strategy: str = Field(
+        default="none",
+        description="Verification strategy: dom_assertion, url_match, data_validation, file_validation, form_submission, or none"
+    )
+    verification_params: Dict[str, Any] = Field(default_factory=dict)
     expected_outcome: Optional[str] = None
     timeout_seconds: int = 45
     status: StepStatus = StepStatus.PENDING
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
+
+    @property
+    def step_id(self) -> int:
+        return self.id
+
+    @field_validator("agent")
+    @classmethod
+    def validate_agent(cls, v: str) -> str:
+        if v not in ALLOWED_AGENTS:
+            raise ValueError(f"Invalid specialist agent '{v}'. Allowed agents: {sorted(ALLOWED_AGENTS)}")
+        return v
+
+# Alias PlanStep to TaskStep for unified runtime compatibility
+PlanStep = TaskStep
+
 
 class TaskPlan(BaseModel):
     task_id: str

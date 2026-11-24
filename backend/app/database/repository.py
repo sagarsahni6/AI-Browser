@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, update
 from backend.app.database.models import (
     Conversation, Message, AgentTask, TaskStep, ApprovalRequest, ResearchCollection, ResearchSource, AppSetting,
-    Workflow, WorkflowExecution, UserMemory, WebsiteMonitor, ResearchReport, DesktopAuditLog
+    Workflow, WorkflowExecution, UserMemory, WebsiteMonitor, ResearchReport, DesktopAuditLog, RuntimeCheckpoint
 )
 
 class Repository:
@@ -113,6 +113,19 @@ class Repository:
         await self.db.execute(update(AgentTask).where(AgentTask.id == task_id).values(**values))
         await self.db.commit()
 
+    async def update_task_graph_ids(
+        self,
+        task_id: str,
+        graph_thread_id: str,
+        lg_checkpoint_id: Optional[str] = None,
+    ) -> None:
+        """Update LangGraph thread and checkpoint IDs on a task row."""
+        values: Dict[str, Any] = {"graph_thread_id": graph_thread_id}
+        if lg_checkpoint_id is not None:
+            values["lg_checkpoint_id"] = lg_checkpoint_id
+        await self.db.execute(update(AgentTask).where(AgentTask.id == task_id).values(**values))
+        await self.db.commit()
+
     async def add_task_step(
         self,
         task_id: str,
@@ -201,15 +214,19 @@ class Repository:
         tool_name: str,
         action_type: str,
         description: str,
-        parameters_json: Optional[str] = None
+        parameters_json: Optional[str] = None,
+        step_number: Optional[int] = None,
+        session_checkpoint_json: Optional[str] = None
     ) -> ApprovalRequest:
         appr = ApprovalRequest(
             id=f"appr-{uuid.uuid4().hex[:12]}",
             task_id=task_id,
+            step_number=step_number,
             tool_name=tool_name,
             action_type=action_type,
             description=description,
             parameters_json=parameters_json,
+            session_checkpoint_json=session_checkpoint_json,
             status="pending",
             created_at=time.time()
         )
@@ -218,12 +235,29 @@ class Repository:
         await self.db.refresh(appr)
         return appr
 
-    async def update_approval_status(self, request_id: str, status: str) -> Optional[ApprovalRequest]:
+    async def get_approval_request(self, request_id: str) -> Optional[ApprovalRequest]:
+        stmt = select(ApprovalRequest).where(ApprovalRequest.id == request_id)
+        res = await self.db.execute(stmt)
+        return res.scalars().first()
+
+    async def get_pending_approval_for_task(self, task_id: str) -> Optional[ApprovalRequest]:
+        stmt = select(ApprovalRequest).where(
+            ApprovalRequest.task_id == task_id,
+            ApprovalRequest.status == "pending"
+        ).order_by(ApprovalRequest.created_at.desc())
+        res = await self.db.execute(stmt)
+        return res.scalars().first()
+
+    async def update_approval_status(self, request_id: str, status: str, error: Optional[str] = None) -> Optional[ApprovalRequest]:
         stmt = select(ApprovalRequest).where(ApprovalRequest.id == request_id)
         res = await self.db.execute(stmt)
         appr = res.scalars().first()
         if appr:
             appr.status = status
+            if status in ("approved", "rejected", "executed", "failed"):
+                appr.resolved_at = time.time()
+            if error is not None:
+                appr.error = error
             await self.db.commit()
             await self.db.refresh(appr)
         return appr
@@ -437,11 +471,19 @@ class Repository:
         action: str,
         parameters: Optional[Dict[str, Any]] = None,
         authorized: bool = True,
-        result: Optional[str] = None
+        result: Optional[str] = None,
+        action_type: Optional[str] = None,
+        target: Optional[str] = None,
+        status: Optional[str] = None,
+        duration_ms: Optional[float] = None
     ) -> DesktopAuditLog:
         log_entry = DesktopAuditLog(
             id=f"log-{uuid.uuid4().hex[:12]}",
             action=action,
+            action_type=action_type or action,
+            target=target,
+            status=status or ("authorized" if authorized else "denied"),
+            duration_ms=duration_ms,
             parameters_json=json.dumps(parameters or {}),
             authorized=authorized,
             result=result,
@@ -456,3 +498,36 @@ class Repository:
         stmt = select(DesktopAuditLog).order_by(DesktopAuditLog.timestamp.desc()).limit(limit)
         res = await self.db.execute(stmt)
         return list(res.scalars().all())
+
+    # RUNTIME CHECKPOINTS
+    async def create_runtime_checkpoint(
+        self,
+        task_id: str,
+        step_number: int,
+        state: Dict[str, Any]
+    ) -> RuntimeCheckpoint:
+        checkpoint = RuntimeCheckpoint(
+            id=f"chk-{uuid.uuid4().hex[:12]}",
+            task_id=task_id,
+            step_number=step_number,
+            state_json=json.dumps(state),
+            created_at=time.time(),
+            updated_at=time.time()
+        )
+        self.db.add(checkpoint)
+        await self.db.commit()
+        await self.db.refresh(checkpoint)
+        return checkpoint
+
+    async def get_latest_runtime_checkpoint(self, task_id: str) -> Optional[RuntimeCheckpoint]:
+        stmt = select(RuntimeCheckpoint).where(
+            RuntimeCheckpoint.task_id == task_id
+        ).order_by(RuntimeCheckpoint.step_number.desc(), RuntimeCheckpoint.updated_at.desc()).limit(1)
+        res = await self.db.execute(stmt)
+        return res.scalar_one_or_none()
+
+    async def clear_runtime_checkpoints(self, task_id: str) -> bool:
+        stmt = delete(RuntimeCheckpoint).where(RuntimeCheckpoint.task_id == task_id)
+        res = await self.db.execute(stmt)
+        await self.db.commit()
+        return res.rowcount > 0

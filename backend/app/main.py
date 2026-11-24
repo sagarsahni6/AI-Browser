@@ -3,6 +3,7 @@ import os
 import sys
 import json
 import uvicorn
+from typing import Optional
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -134,6 +135,15 @@ async def handle_assistant_chat(params: dict):
             system_prompt += f"Excerpt: {context['visibleText'][:1500]}\n"
         system_prompt += "Note: If the current page is a 404 error, blank, or unrelated to the user's prompt, ignore it and answer the user's request using the search results or relevant tools.\n"
 
+    # Dynamic context-aware agent skills prompt injection
+    try:
+        from backend.app.skills.registry import skill_registry
+        skill_prompts = skill_registry.get_active_system_prompts(msg_content, context)
+        if skill_prompts:
+            system_prompt += f"\n{skill_prompts}\n"
+    except Exception as e:
+        sys.stderr.write(f"[Skill prompt injection error] {e}\n")
+
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": msg_content}
@@ -145,12 +155,14 @@ async def handle_assistant_chat(params: dict):
     tools_executed_count = 0
 
     try:
+        from backend.app.tools.definitions import get_all_browser_tools
+        active_tools = get_all_browser_tools()
         while turn < max_turns and not _agent_cancelled:
             turn += 1
             completion = await provider.chat_completion(
                 messages=messages,
                 model=model,
-                tools=BROWSER_TOOLS
+                tools=active_tools
             )
 
             if completion.tool_calls and not _agent_cancelled:
@@ -294,6 +306,9 @@ async def handle_tasks_create(params: dict):
             model=model,
             execution_mode=mode
         ))
+    elif engine == "langgraph":
+        from backend.app.graph.runner import GraphRunner
+        asyncio.create_task(GraphRunner.run_task(task_id))
     else:
         from backend.app.agents.supervisor import SupervisorAgent
         asyncio.create_task(SupervisorAgent.run_task(task_id))
@@ -333,6 +348,11 @@ async def handle_tasks_get(params: dict):
 
 async def handle_tasks_cancel(params: dict):
     task_id = params.get("task_id")
+    try:
+        from backend.app.graph.runner import GraphRunner
+        GraphRunner.cancel_task(task_id)
+    except Exception:
+        pass
     from backend.app.agents.supervisor import SupervisorAgent
     SupervisorAgent.cancel_task(task_id)
     async with AsyncSessionLocal() as session:
@@ -360,23 +380,37 @@ async def handle_tasks_resume(params: dict):
 
 async def handle_tasks_approve(params: dict):
     task_id = params.get("task_id")
+    approval_id = params.get("approval_id")
     decision = params.get("decision", True)
+
+    # Check if task is managed by LangGraph
     async with AsyncSessionLocal() as session:
         repo = Repository(session)
-        if decision:
-            await repo.update_task_status(task_id, status="running")
-            return {"status": "approved", "id": task_id}
-        else:
-            await repo.update_task_status(task_id, status="cancelled", error="Action rejected by user")
-            return {"status": "rejected", "id": task_id}
+        task = await repo.get_task(task_id)
+        if task and task.graph_thread_id:
+            from backend.app.graph.runner import GraphRunner
+            res = await GraphRunner.resume_approved_task(task_id, approval_id=approval_id, decision=decision)
+            if res.get("status") != "not_langgraph":
+                return res
+
+    from backend.app.agents.supervisor import SupervisorAgent
+    return await SupervisorAgent.resume_approved_task(task_id, approval_id=approval_id, decision=decision)
 
 async def handle_tasks_reject(params: dict):
     task_id = params.get("task_id")
-    reason = params.get("reason", "Action rejected by user")
+    approval_id = params.get("approval_id")
+
     async with AsyncSessionLocal() as session:
         repo = Repository(session)
-        await repo.update_task_status(task_id, status="cancelled", error=reason)
-        return {"status": "rejected", "id": task_id, "reason": reason}
+        task = await repo.get_task(task_id)
+        if task and task.graph_thread_id:
+            from backend.app.graph.runner import GraphRunner
+            res = await GraphRunner.resume_approved_task(task_id, approval_id=approval_id, decision=False)
+            if res.get("status") != "not_langgraph":
+                return res
+
+    from backend.app.agents.supervisor import SupervisorAgent
+    return await SupervisorAgent.resume_approved_task(task_id, approval_id=approval_id, decision=False)
 
 bridge.register_method("tasks.create", handle_tasks_create)
 bridge.register_method("tasks.list", handle_tasks_list)
@@ -701,15 +735,64 @@ bridge.register_method("desktop.emergency_stop", handle_desktop_emergency_stop)
 bridge.register_method("desktop.reset_stop", handle_desktop_reset_stop)
 bridge.register_method("desktop.get_audit_logs", handle_desktop_get_audit_logs)
 
+# Skills RPC handlers
+async def handle_skills_list(params: dict):
+    from backend.app.skills.registry import skill_registry
+    return skill_registry.list_manifests()
+
+async def handle_skills_toggle(params: dict):
+    from backend.app.skills.registry import skill_registry
+    skill_id = params.get("skill_id", "")
+    enabled = params.get("enabled")
+    res = skill_registry.toggle_skill(skill_id, enabled)
+    return {"skill_id": skill_id, "enabled": res}
+
+async def handle_skills_execute(params: dict):
+    tool_name = params.get("tool_name", "")
+    args = params.get("params", {})
+    return await ToolExecutor.execute(tool_name, args)
+
+bridge.register_method("skills.list", handle_skills_list)
+bridge.register_method("skills.toggle", handle_skills_toggle)
+bridge.register_method("skills.execute", handle_skills_execute)
+
+# WORKFLOW ENGINE RPC HANDLERS
+async def handle_workflows_resume(params: dict):
+    from backend.app.workflows.engine import WorkflowEngine
+    execution_id = params.get("execution_id", "")
+    decision = params.get("decision", True)
+    approval_id = params.get("approval_id")
+    return await WorkflowEngine.resume_workflow(
+        execution_id=execution_id,
+        decision=decision,
+        approval_id=approval_id
+    )
+
+bridge.register_method("workflows.resume", handle_workflows_resume)
+bridge.register_method("workflows.approve", handle_workflows_resume)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # 1. Initialize SQLite database schema
     await init_db()
 
-    # 2. Start stdin/stdout bridge in background task
+    # 2. Initialize LangGraph checkpointer (AsyncSqliteSaver in ai_browser.db)
+    try:
+        from backend.app.graph.checkpointer import init_checkpointer, close_checkpointer
+        from backend.app.graph.graph import rebuild_graph
+        db_path = settings.DATABASE_URL
+        await init_checkpointer(db_path)
+        rebuild_graph()
+        import logging
+        logging.getLogger("main").info("LangGraph checkpointer and graph initialised.")
+    except Exception as lg_err:
+        import logging
+        logging.getLogger("main").error(f"LangGraph init failed (non-fatal, graph engine disabled): {lg_err}")
+
+    # 3. Start stdin/stdout bridge in background task
     bridge_task = asyncio.create_task(bridge.start())
 
-    # 3. Notify Electron that backend is ready
+    # 4. Notify Electron that backend is ready
     bridge.notify_ready(port=settings.PORT, token=settings.SECRET_TOKEN)
 
     yield
@@ -717,6 +800,11 @@ async def lifespan(app: FastAPI):
     # Cleanup
     bridge.stop()
     bridge_task.cancel()
+    try:
+        from backend.app.graph.checkpointer import close_checkpointer
+        await close_checkpointer()
+    except Exception:
+        pass
 
 app = FastAPI(
     title="AI Browser Backend",
@@ -748,6 +836,52 @@ app.include_router(conversations_router, prefix="/api/v1")
 app.include_router(tasks_router, prefix="/api/v1")
 app.include_router(providers_router, prefix="/api/v1")
 app.include_router(search_router, prefix="/api/v1")
+
+# Hermes Agent restricted MCP gateway
+from backend.app.api.hermes_gateway import router as hermes_router
+app.include_router(hermes_router, prefix="/api/v1")
+
+# Direct approval endpoint routes supporting /tasks and /api/v1/tasks paths
+@app.post("/tasks/{task_id}/approve")
+@app.post("/api/v1/tasks/{task_id}/approve")
+async def direct_approve_task(task_id: str, approval_id: Optional[str] = None):
+    async with AsyncSessionLocal() as session:
+        repo = Repository(session)
+        task = await repo.get_task(task_id)
+        if task and task.graph_thread_id:
+            from backend.app.graph.runner import GraphRunner
+            res = await GraphRunner.resume_approved_task(task_id, approval_id=approval_id, decision=True)
+            if res.get("status") != "not_langgraph":
+                return res
+    from backend.app.agents.supervisor import SupervisorAgent
+    return await SupervisorAgent.resume_approved_task(task_id, approval_id=approval_id, decision=True)
+
+@app.post("/tasks/{task_id}/reject")
+@app.post("/api/v1/tasks/{task_id}/reject")
+async def direct_reject_task(task_id: str, approval_id: Optional[str] = None):
+    async with AsyncSessionLocal() as session:
+        repo = Repository(session)
+        task = await repo.get_task(task_id)
+        if task and task.graph_thread_id:
+            from backend.app.graph.runner import GraphRunner
+            res = await GraphRunner.resume_approved_task(task_id, approval_id=approval_id, decision=False)
+            if res.get("status") != "not_langgraph":
+                return res
+    from backend.app.agents.supervisor import SupervisorAgent
+    return await SupervisorAgent.resume_approved_task(task_id, approval_id=approval_id, decision=False)
+
+# Direct workflow approval endpoint routes supporting /workflows and /api/v1/workflows paths
+@app.post("/workflows/{execution_id}/approve")
+@app.post("/api/v1/workflows/{execution_id}/approve")
+async def direct_approve_workflow(execution_id: str, approval_id: Optional[str] = None):
+    from backend.app.workflows.engine import WorkflowEngine
+    return await WorkflowEngine.resume_workflow(execution_id, decision=True, approval_id=approval_id)
+
+@app.post("/workflows/{execution_id}/reject")
+@app.post("/api/v1/workflows/{execution_id}/reject")
+async def direct_reject_workflow(execution_id: str, approval_id: Optional[str] = None):
+    from backend.app.workflows.engine import WorkflowEngine
+    return await WorkflowEngine.resume_workflow(execution_id, decision=False, approval_id=approval_id)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", settings.PORT))

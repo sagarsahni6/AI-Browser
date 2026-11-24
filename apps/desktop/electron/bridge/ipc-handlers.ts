@@ -34,7 +34,11 @@ export function setupIpcHandlers(deps: {
   const broadcastToPanels = (channel: string, ...args: any[]) => {
     for (const view of panelViews) {
       if (!view.webContents.isDestroyed()) {
-        view.webContents.send(channel, ...args);
+        try {
+          view.webContents.send(channel, ...args);
+        } catch {
+          // Ignore transient webContents frame disposal during navigation
+        }
       }
     }
   };
@@ -468,16 +472,16 @@ export function setupIpcHandlers(deps: {
     return false;
   });
 
-  ipcMain.handle(IPC_CHANNELS.TASK_APPROVE, async (_event, taskId: string, decision: boolean = true) => {
+  ipcMain.handle(IPC_CHANNELS.TASK_APPROVE, async (_event, taskId: string, decision: boolean = true, approvalId?: string) => {
     if (processManager.getStatus().online) {
-      return await rpcClient.call('tasks.approve', { task_id: taskId, decision });
+      return await rpcClient.call('tasks.approve', { task_id: taskId, decision, approval_id: approvalId });
     }
     return false;
   });
 
-  ipcMain.handle(IPC_CHANNELS.TASK_REJECT, async (_event, taskId: string, reason?: string) => {
+  ipcMain.handle(IPC_CHANNELS.TASK_REJECT, async (_event, taskId: string, reason?: string, approvalId?: string) => {
     if (processManager.getStatus().online) {
-      return await rpcClient.call('tasks.reject', { task_id: taskId, reason });
+      return await rpcClient.call('tasks.reject', { task_id: taskId, reason, approval_id: approvalId });
     }
     return false;
   });
@@ -743,5 +747,29 @@ export function setupIpcHandlers(deps: {
       return await rpcClient.call('desktop.get_audit_logs', { limit: limit || 100 });
     }
     return [];
+  });
+
+  // Agent Skills System
+  ipcMain.handle(IPC_CHANNELS.SKILLS_LIST, async () => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('skills.list', {});
+    }
+    return [];
+  });
+
+  ipcMain.handle(IPC_CHANNELS.SKILLS_TOGGLE, async (_event, skillId: string, enabled?: boolean) => {
+    if (processManager.getStatus().online) {
+      const res = await rpcClient.call('skills.toggle', { skill_id: skillId, enabled });
+      broadcastToPanels(IPC_CHANNELS.SKILLS_CHANGED, res);
+      return res;
+    }
+    return { skill_id: skillId, enabled: false };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.SKILLS_EXECUTE, async (_event, payload: { toolName: string; params?: any }) => {
+    if (processManager.getStatus().online) {
+      return await rpcClient.call('skills.execute', { tool_name: payload.toolName, params: payload.params || {} });
+    }
+    return { status: 'error', error: 'Backend offline' };
   });
 }

@@ -28,15 +28,20 @@ export const ApprovalDialog: React.FC<ApprovalDialogProps> = ({
 
   if (!isOpen) return null;
 
+  // Safe string coercion for reason, actionTitle, and toolName
+  const safeReason = typeof reason === 'string' ? reason : (reason ? JSON.stringify(reason) : '');
+  const safeTitle = typeof actionTitle === 'string' ? actionTitle : String(actionTitle || '');
+  const safeToolName = typeof toolName === 'string' ? toolName : String(toolName || '');
+
   // Mask sensitive values from parameter preview for safety
   const sanitizedParams = parameters ? { ...parameters } : {};
-  if (sanitizedParams.text && (toolName === 'fill_input' || toolName.includes('password'))) {
+  if (sanitizedParams.text && (safeToolName === 'fill_input' || safeToolName.includes('password'))) {
     sanitizedParams.text = '•••••••• (Masked for security)';
   }
 
   // Risk Score Meter calculation
-  const normalizedReason = (reason || '').toUpperCase();
-  const normalizedTitle = (actionTitle || '').toUpperCase();
+  const normalizedReason = safeReason.toUpperCase();
+  const normalizedTitle = safeTitle.toUpperCase();
   const rawTier = String(parameters?.tier || parameters?.risk_tier || '').toUpperCase();
 
   let tier: 'RED TIER' | 'YELLOW TIER' | 'GREEN TIER' = 'GREEN TIER';
@@ -64,7 +69,7 @@ export const ApprovalDialog: React.FC<ApprovalDialogProps> = ({
             <ShieldAlert size={20} />
           </div>
           <div className={styles.headerContent}>
-            <div className={styles.title}>{actionTitle}</div>
+            <div className={styles.title}>{safeTitle}</div>
             <div className={styles.subtitle}>Security Guardrail Active</div>
           </div>
         </div>
@@ -72,7 +77,7 @@ export const ApprovalDialog: React.FC<ApprovalDialogProps> = ({
         {/* Body */}
         <div className={styles.body}>
           <div className={styles.reasonBox}>
-            {reason}
+            {safeReason}
           </div>
 
           {/* Labeled Color-Coded Risk Score Meter */}
@@ -97,7 +102,7 @@ export const ApprovalDialog: React.FC<ApprovalDialogProps> = ({
           <div className={styles.detailsList}>
             <div className={styles.detailRow}>
               <span className={styles.detailLabel}>Tool:</span>
-              <span className={styles.detailValue}>{toolName}</span>
+              <span className={styles.detailValue}>{safeToolName}</span>
             </div>
             {targetUrl && (
               <div className={styles.detailRow}>

@@ -1,7 +1,7 @@
 import json
 import logging
 from typing import List, Dict, Any, Optional
-from backend.app.agents.models import TaskPlan, TaskStep, StepStatus
+from backend.app.agents.models import TaskPlan, TaskStep, PlanStep, StepStatus
 from backend.app.ai.router import ModelRouter
 
 logger = logging.getLogger("planner_agent")
@@ -16,23 +16,37 @@ class PlannerAgent:
     async def create_plan(task_id: str, prompt: str, current_url: Optional[str] = None) -> TaskPlan:
         provider, model = ModelRouter.route_for_task(task_type="tools")
 
+        active_skills_info = ""
+        try:
+            from backend.app.skills.registry import skill_registry
+            active_skills_info = skill_registry.get_active_system_prompts(prompt)
+        except Exception:
+            pass
+
         planning_prompt = (
-            f"You are the Browser Agent Task Planner. The user wants to accomplish:\n"
+            f"You are the Multi-Agent Execution Planner. The user wants to accomplish:\n"
             f"\"{prompt}\"\n\n"
             f"Current tab URL: {current_url or 'about:blank'}\n\n"
-            f"Break this task into 2 to 5 actionable steps.\n"
-            f"Available agents & actions:\n"
-            f"- 'browser': click_selector (target 'input[name=q]', 'button.submit', 'text=Submit'), fill_selector (target selector + text), wait_for_selector, navigate, click_element (x,y), fill_input (x,y,text), scroll_page, press_hotkey\n"
-            f"- 'researcher': search_web, compare_tabs\n"
-            f"- 'data': detect_forms, extract_table_data, get_page_content, export_csv, export_json\n"
-            f"- 'verifier': verify_task, inspect_visual_chart, take_screenshot\n"
-            f"Prefer selector-based DOM actions ('click_selector', 'fill_selector', 'wait_for_selector') over raw coordinates.\n"
+            f"Break this task into the optimal number of actionable steps according to complexity (no artificial step ceiling).\n"
+            f"Available specialist agents & actions:\n"
+            f"- 'browser': navigate, click_element, fill_input, scroll_page, open_new_tab, press_hotkey\n"
+            f"- 'dom': click_selector, fill_selector, wait_for_selector, detect_form_fields, get_accessibility_tree\n"
+            f"- 'vision': inspect_visual_chart, locate_element_visually, verify_visual_state\n"
+            f"- 'desktop': desktop_click, desktop_type, desktop_hotkey, desktop_capture_screen, desktop_launch_app\n"
+            f"- 'file': read_file, write_file, read_pdf, summarize_pdf\n"
+            f"- 'memory': store_memory, retrieve_memory, get_context\n"
+            f"- 'recovery': diagnose_failure, dismiss_overlays, suggest_recovery_steps\n"
+            f"- 'data': detect_forms, extract_table_data, get_page_content, export_csv, export_data\n"
+            f"- 'researcher': search_web, synthesize_research\n"
+            f"- 'verifier': verify_task, verify_dom_assertion, verify_url_match, verify_data_validation, verify_file_validation, verify_form_submission\n"
+            f"{active_skills_info}\n"
+            f"Verification strategies: dom_assertion, url_match, data_validation, file_validation, form_submission, or none.\n"
             f"Respond with a JSON array of step objects, for example:\n"
             f"[\n"
-            f"  {{\"id\": 1, \"agent\": \"browser\", \"action\": \"navigate\", \"description\": \"Navigate to target website\", \"parameters\": {{\"url\": \"https://example.com\"}}, \"expected_outcome\": \"Page loaded\"}},\n"
-            f"  {{\"id\": 2, \"agent\": \"browser\", \"action\": \"wait_for_selector\", \"description\": \"Wait for content container\", \"parameters\": {{\"selector\": \"main, #content, body\"}}, \"expected_outcome\": \"Content visible\"}},\n"
-            f"  {{\"id\": 3, \"agent\": \"data\", \"action\": \"get_page_content\", \"description\": \"Extract visible information\", \"parameters\": {{}}, \"expected_outcome\": \"Information captured\"}},\n"
-            f"  {{\"id\": 4, \"agent\": \"verifier\", \"action\": \"verify_task\", \"description\": \"Verify task completed\", \"parameters\": {{}}, \"expected_outcome\": \"Confirmed complete\"}}\n"
+            f"  {{\"id\": 1, \"agent\": \"browser\", \"action\": \"navigate\", \"description\": \"Navigate to target website\", \"parameters\": {{\"url\": \"https://example.com\"}}, \"dependencies\": [], \"verification_strategy\": \"url_match\", \"verification_params\": {{\"expected_url_pattern\": \"example.com\"}}, \"expected_outcome\": \"Page loaded\"}},\n"
+            f"  {{\"id\": 2, \"agent\": \"dom\", \"action\": \"wait_for_selector\", \"description\": \"Wait for content container\", \"parameters\": {{\"selector\": \"main, #content, body\"}}, \"dependencies\": [1], \"verification_strategy\": \"dom_assertion\", \"verification_params\": {{\"selector\": \"main, #content, body\"}}, \"expected_outcome\": \"Content visible\"}},\n"
+            f"  {{\"id\": 3, \"agent\": \"data\", \"action\": \"get_page_content\", \"description\": \"Extract visible information\", \"parameters\": {{}}, \"dependencies\": [2], \"verification_strategy\": \"data_validation\", \"verification_params\": {{\"min_length\": 10}}, \"expected_outcome\": \"Information captured\"}},\n"
+            f"  {{\"id\": 4, \"agent\": \"verifier\", \"action\": \"verify_task\", \"description\": \"Verify task completed\", \"parameters\": {{}}, \"dependencies\": [3], \"verification_strategy\": \"none\", \"verification_params\": {{}}, \"expected_outcome\": \"Confirmed complete\"}}\n"
             f"]"
         )
 
@@ -41,24 +55,28 @@ class PlannerAgent:
                 messages=[{"role": "user", "content": planning_prompt}],
                 model=model
             )
-            raw_text = plan_res.content
+            raw_text = plan_res.content or ""
 
-            # Parse JSON array from response
-            start_idx = raw_text.find("[")
-            end_idx = raw_text.rfind("]")
-            if start_idx != -1 and end_idx != -1:
-                steps_data = json.loads(raw_text[start_idx:end_idx+1])
+            # Parse JSON array from response containing step objects
+            import re
+            json_match = re.search(r'\[\s*\{.*\}\s*\]', raw_text, re.DOTALL)
+            if json_match:
+                steps_data = json.loads(json_match.group(0))
                 steps = []
                 for idx, s in enumerate(steps_data):
                     steps.append(TaskStep(
-                        id=idx + 1,
+                        id=s.get("id") or (idx + 1),
                         agent=s.get("agent", "browser"),
                         action=s.get("action", "navigate"),
                         description=s.get("description", f"Step {idx+1}"),
                         parameters=s.get("parameters", {}),
+                        dependencies=s.get("dependencies", []),
+                        verification_strategy=s.get("verification_strategy", "none"),
+                        verification_params=s.get("verification_params", {}),
                         expected_outcome=s.get("expected_outcome", "Step finished")
                     ))
-                return TaskPlan(task_id=task_id, description=prompt, steps=steps)
+                if steps:
+                    return TaskPlan(task_id=task_id, description=prompt, steps=steps)
         except Exception as e:
             logger.warning(f"Error generating dynamic plan: {e}")
 

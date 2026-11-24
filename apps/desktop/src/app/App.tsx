@@ -4,6 +4,7 @@ import { SidebarPanel } from '../panels/SidebarPanel';
 import { AssistantPanel } from '../panels/AssistantPanel';
 import { FirstRunWizard } from '../components/FirstRunWizard';
 import { NewTabPage } from '../components/NewTabPage';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 import { useBrowserStore, applyTheme } from '../store/browser-store';
 import { initLaserIndicator } from '../overlay/LaserIndicator';
 
@@ -59,6 +60,28 @@ export const App: React.FC = () => {
         useBrowserStore.getState().setActiveAction(action);
       });
 
+      const unsubTaskStep = (window.electronAPI.onTaskStepUpdated || window.electronAPI.onTaskStepUpdate)?.((data: any) => {
+        if (data?.status === 'approval_required') {
+          useBrowserStore.getState().setActiveAction({
+            action: data.action || data.tool_name || 'Action Requires Approval',
+            parameters: {
+              ...(data.parameters || {}),
+              task_id: data.task_id,
+              approval_id: data.approval_id
+            },
+            status: 'approval_required',
+            result: data.reason || 'Action requires user confirmation',
+            task_id: data.task_id,
+            approval_id: data.approval_id
+          } as any);
+        } else if (data?.status === 'completed' || data?.status === 'failed' || data?.status === 'cancelled') {
+          const currentAction = useBrowserStore.getState().activeAction as any;
+          if (currentAction && (currentAction.task_id === data.task_id || currentAction.parameters?.task_id === data.task_id)) {
+            useBrowserStore.getState().setActiveAction(null);
+          }
+        }
+      });
+
       const unsubAssistant = window.electronAPI.onAssistantStateChanged?.((open) => {
         setAssistantOpen(open);
       });
@@ -74,6 +97,7 @@ export const App: React.FC = () => {
         unsubBackend();
         unsubChat();
         unsubAction?.();
+        unsubTaskStep?.();
         unsubAssistant?.();
         unsubSidebar?.();
         unsubLaser();
@@ -82,32 +106,50 @@ export const App: React.FC = () => {
   }, [setTabs, setSidebarOpen, setAssistantOpen, setBackendStatus, appendChatChunk]);
 
   if (panel === 'toolbar') {
-    return <ToolbarPanel />;
+    return (
+      <ErrorBoundary panelName="Toolbar">
+        <ToolbarPanel />
+      </ErrorBoundary>
+    );
   }
 
   if (panel === 'welcome') {
     return (
-      <FirstRunWizard
-        onComplete={() => {
-          localStorage.setItem('has_completed_onboarding', 'true');
-          if (window.electronAPI?.navigate) {
-            window.electronAPI.navigate('https://www.google.com');
-          }
-        }}
-      />
+      <ErrorBoundary panelName="Welcome Wizard">
+        <FirstRunWizard
+          onComplete={() => {
+            localStorage.setItem('has_completed_onboarding', 'true');
+            if (window.electronAPI?.navigate) {
+              window.electronAPI.navigate('https://www.google.com');
+            }
+          }}
+        />
+      </ErrorBoundary>
     );
   }
 
   if (panel === 'sidebar') {
-    return <SidebarPanel />;
+    return (
+      <ErrorBoundary panelName="Sidebar">
+        <SidebarPanel />
+      </ErrorBoundary>
+    );
   }
 
   if (panel === 'assistant') {
-    return <AssistantPanel />;
+    return (
+      <ErrorBoundary panelName="AI Assistant">
+        <AssistantPanel />
+      </ErrorBoundary>
+    );
   }
 
   if (panel === 'newtab') {
-    return <NewTabPage />;
+    return (
+      <ErrorBoundary panelName="New Tab Page">
+        <NewTabPage />
+      </ErrorBoundary>
+    );
   }
 
   // Fallback standalone preview (e.g. running vite standalone in standard browser)

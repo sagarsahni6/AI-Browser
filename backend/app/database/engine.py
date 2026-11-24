@@ -37,6 +37,51 @@ async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
+        def migrate_approval_requests(sync_conn):
+            from sqlalchemy import text
+            res = sync_conn.execute(text("PRAGMA table_info(approval_requests)"))
+            columns = [row[1] for row in res.fetchall()]
+            if "step_number" not in columns:
+                sync_conn.execute(text("ALTER TABLE approval_requests ADD COLUMN step_number INTEGER"))
+            if "session_checkpoint_json" not in columns:
+                sync_conn.execute(text("ALTER TABLE approval_requests ADD COLUMN session_checkpoint_json TEXT"))
+            if "resolved_at" not in columns:
+                sync_conn.execute(text("ALTER TABLE approval_requests ADD COLUMN resolved_at REAL"))
+            if "error" not in columns:
+                sync_conn.execute(text("ALTER TABLE approval_requests ADD COLUMN error TEXT"))
+
+        def migrate_desktop_audit_logs(sync_conn):
+            from sqlalchemy import text
+            res = sync_conn.execute(text("PRAGMA table_info(desktop_audit_logs)"))
+            columns = [row[1] for row in res.fetchall()]
+            if "action_type" not in columns:
+                sync_conn.execute(text("ALTER TABLE desktop_audit_logs ADD COLUMN action_type VARCHAR(64)"))
+            if "target" not in columns:
+                sync_conn.execute(text("ALTER TABLE desktop_audit_logs ADD COLUMN target VARCHAR(255)"))
+            if "status" not in columns:
+                sync_conn.execute(text("ALTER TABLE desktop_audit_logs ADD COLUMN status VARCHAR(32)"))
+            if "duration_ms" not in columns:
+                sync_conn.execute(text("ALTER TABLE desktop_audit_logs ADD COLUMN duration_ms REAL"))
+
+        await conn.run_sync(migrate_approval_requests)
+        await conn.run_sync(migrate_desktop_audit_logs)
+
+        def migrate_tasks_langgraph(sync_conn):
+            """Add LangGraph thread/checkpoint columns to tasks table (safe, idempotent)."""
+            from sqlalchemy import text
+            res = sync_conn.execute(text("PRAGMA table_info(tasks)"))
+            columns = [row[1] for row in res.fetchall()]
+            if "graph_thread_id" not in columns:
+                sync_conn.execute(text(
+                    "ALTER TABLE tasks ADD COLUMN graph_thread_id VARCHAR(128)"
+                ))
+            if "lg_checkpoint_id" not in columns:
+                sync_conn.execute(text(
+                    "ALTER TABLE tasks ADD COLUMN lg_checkpoint_id VARCHAR(128)"
+                ))
+
+        await conn.run_sync(migrate_tasks_langgraph)
+
 async def get_db():
     async with AsyncSessionLocal() as session:
         try:

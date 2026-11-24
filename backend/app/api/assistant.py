@@ -276,6 +276,17 @@ def build_system_prompt(
         "the local CSV export path.\n"
     )
 
+    # =========================================================================
+    # SECTION 9: ACTIVE AGENT SKILLS
+    # =========================================================================
+    try:
+        from backend.app.skills.registry import skill_registry
+        skill_prompts = skill_registry.get_active_system_prompts(user_message or "", page_context)
+        if skill_prompts:
+            prompt += f"\n[SECTION 9: ACTIVE AGENT SKILLS]\n{skill_prompts}\n\n"
+    except Exception:
+        pass
+
     return prompt
 
 @router.post("/chat")

@@ -3,7 +3,9 @@ import json
 import csv
 import io
 import os
+import re
 import time
+import hashlib
 from typing import Dict, Any, List, Optional
 from backend.app.tools.executor import ToolExecutor
 
@@ -12,8 +14,44 @@ logger = logging.getLogger("data_agent")
 class DataAgent:
     """
     Specialist agent for data extraction, multi-page pagination scraping,
-    JSON/CSV exporting, and structured dataset formatting.
+    JSON/CSV/XLSX exporting, and structured dataset formatting with formula injection defense.
     """
+
+    @staticmethod
+    def sanitize_cell(val: Any) -> Any:
+        """
+        Sanitize formula injection triggers (=, +, -, @, \\t, \\r) by prepending a single quote.
+        Neutralizes execution when loaded into spreadsheet applications (Excel, LibreOffice, Sheets).
+        """
+        if isinstance(val, str) and val.startswith(("=", "+", "-", "@", "\t", "\r")):
+            return f"'{val}"
+        return val
+
+    @staticmethod
+    def infer_column_types(rows: List[Dict[str, Any]]) -> Dict[str, str]:
+        """
+        Infer column data types across rows: currency, number, date, url, text.
+        """
+        if not rows:
+            return {}
+        keys = {k for r in rows for k in r.keys() if k != "page"}
+        schema = {}
+        for k in keys:
+            values = [str(r[k]).strip() for r in rows if k in r and r[k] is not None and str(r[k]).strip()]
+            if not values:
+                schema[k] = "text"
+                continue
+            if all(re.match(r"^[\$€£¥]\s*[\d,]+(\.\d+)?$", v) or re.match(r"^[\d,]+(\.\d+)?\s*[\$€£¥]$", v) for v in values):
+                schema[k] = "currency"
+            elif all(re.match(r"^https?://", v, re.IGNORECASE) for v in values):
+                schema[k] = "url"
+            elif all(re.match(r"^\d{4}-\d{2}-\d{2}", v) or re.match(r"^\d{1,2}/\d{1,2}/\d{2,4}", v) for v in values):
+                schema[k] = "date"
+            elif all(re.match(r"^-?\d+(\.\d+)?$", v.replace(",", "")) for v in values):
+                schema[k] = "number"
+            else:
+                schema[k] = "text"
+        return schema
 
     @classmethod
     async def extract_table_data(
@@ -23,39 +61,77 @@ class DataAgent:
         max_pages: int = 1
     ) -> Dict[str, Any]:
         """
-        Extract structured table/list data from the active webpage.
-        If pagination_next_selector is given, clicks next up to max_pages and collects all rows.
+        Extract structured table/list data from the active webpage with de-duplication,
+        schema inference, and pagination tracking.
         """
+        if max_pages <= 0:
+            return {
+                "status": "ok",
+                "pages_scraped": 0,
+                "total_records": 0,
+                "total_rows": 0,
+                "row_count": 0,
+                "duplicate_count": 0,
+                "malformed_rows": 0,
+                "schema": {},
+                "rows": [],
+                "data": []
+            }
+
         all_rows: List[Dict[str, Any]] = []
+        seen_hashes = set()
+        duplicate_count = 0
+        malformed_rows = 0
         pages_scraped = 0
 
         for current_page in range(1, max_pages + 1):
             pages_scraped += 1
             # 1. Inspect DOM via get_page_content
             dom_res = await ToolExecutor.execute("get_page_content", {})
-            if dom_res.get("status") != "ok":
+            if dom_res.get("status") not in ("ok", "success"):
                 break
 
-            text_content = dom_res.get("text", "")
-            url = dom_res.get("url", "")
-            title = dom_res.get("title", "")
+            text_content = (
+                dom_res.get("text")
+                or dom_res.get("visible_text_snippet")
+                or (dom_res.get("result", {}).get("visible_text_snippet", "") if isinstance(dom_res.get("result"), dict) else "")
+                or ""
+            )
 
             # Heuristic tabular extraction: extract structured lines or key-values
-            lines = [line.strip() for line in text_content.split("\n") if len(line.strip()) > 3]
-            page_rows = []
-            
-            for idx, line in enumerate(lines[:30]):
+            lines = [line.strip() for line in text_content.split("\n") if len(line.strip()) > 1]
+            page_rows: List[Dict[str, Any]] = []
+
+            for idx, line in enumerate(lines[:50]):
+                if not line:
+                    continue
                 if "|" in line:
                     cols = [c.strip() for c in line.split("|") if c.strip()]
                     if len(cols) >= 2:
-                        page_rows.append({f"col_{i+1}": col for i, col in enumerate(cols)})
+                        row = {f"col_{i+1}": col for i, col in enumerate(cols)}
+                        row["page"] = current_page
+                        page_rows.append(row)
+                    else:
+                        malformed_rows += 1
                 elif ":" in line:
-                    k, v = line.split(":", 1)
-                    page_rows.append({"key": k.strip(), "value": v.strip(), "page": current_page})
+                    parts = line.split(":", 1)
+                    k, v = parts[0].strip(), parts[1].strip()
+                    if k:
+                        page_rows.append({"key": k, "value": v, "page": current_page})
+                    else:
+                        malformed_rows += 1
                 else:
                     page_rows.append({"index": len(page_rows) + 1, "content": line, "page": current_page})
 
-            all_rows.extend(page_rows)
+            # De-duplicate rows across pages
+            for r in page_rows:
+                content_for_hash = {k: v for k, v in r.items() if k != "page"}
+                r_hash = hashlib.sha256(json.dumps(content_for_hash, sort_keys=True).encode()).hexdigest()
+                if r_hash in seen_hashes:
+                    duplicate_count += 1
+                    continue
+                seen_hashes.add(r_hash)
+                all_rows.append(r)
 
             # If pagination next selector is provided and not on last page, click it
             if pagination_next_selector and current_page < max_pages:
@@ -65,13 +141,21 @@ class DataAgent:
                 )
                 if click_res.get("status") == "error":
                     break
-                await ToolExecutor.execute("sleep", {"seconds": 1.0})
+                await ToolExecutor.execute("sleep", {"seconds": 0.5})
+
+        schema = cls.infer_column_types(all_rows)
 
         return {
             "status": "ok",
             "pages_scraped": pages_scraped,
+            "total_records": len(all_rows),
             "total_rows": len(all_rows),
-            "rows": all_rows
+            "row_count": len(all_rows),
+            "duplicate_count": duplicate_count,
+            "malformed_rows": malformed_rows,
+            "schema": schema,
+            "rows": all_rows,
+            "data": all_rows
         }
 
     @classmethod
@@ -82,23 +166,30 @@ class DataAgent:
         filename: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Export a list of records to CSV or JSON format.
+        Export a list of records to CSV, JSON, or XLSX format with formula injection defense.
         """
         fmt = format.lower().strip()
         timestamp = int(time.time())
-        default_name = f"export_{timestamp}.{fmt if fmt in ('json', 'csv') else 'json'}"
+        extension = fmt if fmt in ("json", "csv", "xlsx") else "json"
+        default_name = f"export_{timestamp}.{extension}"
         target_filename = filename or default_name
 
         if fmt == "csv":
             if not data:
                 csv_content = ""
             else:
-                fieldnames = list({k for row in data for k in row.keys()})
+                ordered_keys = []
+                for row in data:
+                    for k in row.keys():
+                        if k not in ordered_keys:
+                            ordered_keys.append(k)
+
                 output = io.StringIO()
-                writer = csv.DictWriter(output, fieldnames=fieldnames)
+                writer = csv.DictWriter(output, fieldnames=ordered_keys, lineterminator="\r\n")
                 writer.writeheader()
                 for row in data:
-                    writer.writerow(row)
+                    sanitized_row = {k: cls.sanitize_cell(row.get(k, "")) for k in ordered_keys}
+                    writer.writerow(sanitized_row)
                 csv_content = output.getvalue()
 
             return {
@@ -108,8 +199,40 @@ class DataAgent:
                 "row_count": len(data),
                 "data": csv_content
             }
+        elif fmt == "xlsx":
+            try:
+                from openpyxl import Workbook
+                wb = Workbook()
+                ws = wb.active
+                ws.title = "Extracted Data"
+                if data:
+                    ordered_keys = []
+                    for row in data:
+                        for k in row.keys():
+                            if k not in ordered_keys:
+                                ordered_keys.append(k)
+                    ws.append(ordered_keys)
+                    for row in data:
+                        ws.append([cls.sanitize_cell(row.get(k, "")) for k in ordered_keys])
+
+                out_dir = os.path.join(os.getcwd(), "data")
+                os.makedirs(out_dir, exist_ok=True)
+                filepath = os.path.join(out_dir, target_filename)
+                wb.save(filepath)
+
+                return {
+                    "status": "ok",
+                    "format": "xlsx",
+                    "filename": target_filename,
+                    "row_count": len(data),
+                    "file_path": filepath,
+                    "data": filepath
+                }
+            except ImportError:
+                logger.warning("openpyxl not available, falling back to csv export")
+                return cls.export_data(data, format="csv", filename=target_filename.replace(".xlsx", ".csv"))
         else:
-            json_content = json.dumps(data, indent=2)
+            json_content = json.dumps(data, indent=2, ensure_ascii=False)
             return {
                 "status": "ok",
                 "format": "json",

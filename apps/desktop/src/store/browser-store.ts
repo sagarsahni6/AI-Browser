@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { BrowserTab, PageObservation, BookmarkItem, HistoryItem, DownloadItem } from '@ai-browser/shared';
+import type { BrowserTab, PageObservation, BookmarkItem, HistoryItem, DownloadItem, SkillManifest } from '@ai-browser/shared';
 
 export interface ChatMessage {
   id: string;
@@ -14,7 +14,7 @@ interface BrowserStore {
   activeTabId: string;
   sidebarOpen: boolean;
   assistantOpen: boolean;
-  sidebarActiveTab: 'discover' | 'history' | 'bookmarks' | 'downloads' | 'collections' | 'workflows' | 'research' | 'tasks' | 'settings';
+  sidebarActiveTab: 'discover' | 'history' | 'bookmarks' | 'downloads' | 'collections' | 'workflows' | 'research' | 'tasks' | 'skills' | 'settings';
   backendStatus: { online: boolean; port?: number };
   activeTab: BrowserTab | null;
   chatMessages: ChatMessage[];
@@ -29,7 +29,7 @@ interface BrowserStore {
   // Actions
   setTabs: (tabs: BrowserTab[], activeTabId: string) => void;
   setSidebarOpen: (open: boolean) => void;
-  setSidebarActiveTab: (tab: 'discover' | 'history' | 'bookmarks' | 'downloads' | 'collections' | 'workflows' | 'research' | 'tasks' | 'settings') => void;
+  setSidebarActiveTab: (tab: 'discover' | 'history' | 'bookmarks' | 'downloads' | 'collections' | 'workflows' | 'research' | 'tasks' | 'skills' | 'settings') => void;
   setAssistantOpen: (open: boolean) => void;
   setBackendStatus: (status: { online: boolean; port?: number }) => void;
   addChatMessage: (msg: ChatMessage) => void;
@@ -89,6 +89,12 @@ interface BrowserStore {
   openDownloadFile: (id: string) => Promise<void>;
   openDownloadFolder: (id: string) => Promise<void>;
   updateDownloadItem: (item: DownloadItem) => void;
+
+  // Agent Skills
+  skills: SkillManifest[];
+  loadSkills: () => Promise<void>;
+  toggleSkill: (id: string, enabled?: boolean) => Promise<void>;
+  executeSkill: (toolName: string, params?: any) => Promise<any>;
 }
 
 export function applyTheme(theme: 'light' | 'dark') {
@@ -458,6 +464,36 @@ export const useBrowserStore = create<BrowserStore>((set, get) => ({
       }
       return { downloads: [item, ...state.downloads] };
     });
+  },
+
+  skills: [],
+  loadSkills: async () => {
+    if (window.electronAPI?.listSkills) {
+      try {
+        const list = await window.electronAPI.listSkills();
+        set({ skills: list || [] });
+      } catch (e) {
+        console.error('Failed to load skills:', e);
+      }
+    }
+  },
+  toggleSkill: async (id: string, enabled?: boolean) => {
+    if (window.electronAPI?.toggleSkill) {
+      try {
+        const res = await window.electronAPI.toggleSkill(id, enabled);
+        set(state => ({
+          skills: state.skills.map(s => s.id === id ? { ...s, enabled: res.enabled } : s)
+        }));
+      } catch (e) {
+        console.error('Failed to toggle skill:', e);
+      }
+    }
+  },
+  executeSkill: async (toolName: string, params?: any) => {
+    if (window.electronAPI?.executeSkill) {
+      return await window.electronAPI.executeSkill(toolName, params);
+    }
+    throw new Error('electronAPI.executeSkill not available');
   }
 }));
 

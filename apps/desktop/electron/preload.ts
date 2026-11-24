@@ -207,13 +207,22 @@ const electronAPI = {
   resumeTask: (taskId: string): Promise<any> => {
     return ipcRenderer.invoke(IPC_CHANNELS.TASK_RESUME, taskId);
   },
-  approveTask: (taskId: string, decision: boolean = true): Promise<any> => {
-    return ipcRenderer.invoke(IPC_CHANNELS.TASK_APPROVE, taskId, decision);
+  approveTask: (taskId: string, decision: boolean = true, approvalId?: string): Promise<any> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.TASK_APPROVE, taskId, decision, approvalId);
   },
-  rejectTask: (taskId: string, reason?: string): Promise<any> => {
-    return ipcRenderer.invoke(IPC_CHANNELS.TASK_REJECT, taskId, reason);
+  rejectTask: (taskId: string, reason?: string, approvalId?: string): Promise<any> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.TASK_REJECT, taskId, reason, approvalId);
   },
   onTaskStepUpdate: (callback: (data: any) => void) => {
+    const handler = (_event: unknown, data: any) => {
+      callback(data);
+    };
+    ipcRenderer.on(IPC_CHANNELS.TASK_STEP_UPDATED, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.TASK_STEP_UPDATED, handler);
+    };
+  },
+  onTaskStepUpdated: (callback: (data: any) => void) => {
     const handler = (_event: unknown, data: any) => {
       callback(data);
     };
@@ -391,6 +400,24 @@ const electronAPI = {
   // Dedicated Approval IPC
   sendApprovalResponse: (payload: { taskId: string; approved: boolean; reason?: string }): Promise<any> => {
     return ipcRenderer.invoke(IPC_CHANNELS.APPROVAL_RESPONSE, payload);
+  },
+
+  // Agent Skills Architecture
+  listSkills: (): Promise<any[]> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SKILLS_LIST);
+  },
+  toggleSkill: (skillId: string, enabled?: boolean): Promise<any> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SKILLS_TOGGLE, skillId, enabled);
+  },
+  executeSkill: (toolName: string, params?: any): Promise<any> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.SKILLS_EXECUTE, { toolName, params });
+  },
+  onSkillsChanged: (callback: (data: any) => void) => {
+    const handler = (_event: unknown, data: any) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.SKILLS_CHANGED, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.SKILLS_CHANGED, handler);
+    };
   }
 };
 

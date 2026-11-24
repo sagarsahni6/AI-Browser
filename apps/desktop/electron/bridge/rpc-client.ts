@@ -105,6 +105,12 @@ export class RpcClient extends EventEmitter {
     // 4. Notification
     if (msg.method && msg.id === undefined) {
       this.emit(`notification:${msg.method}`, msg.params);
+      // Symmetrically emit both dot-separated and colon-separated notification names
+      if (msg.method.includes('.')) {
+        this.emit(`notification:${msg.method.replace(/\./g, ':')}`, msg.params);
+      } else if (msg.method.includes(':')) {
+        this.emit(`notification:${msg.method.replace(/:/g, '.')}`, msg.params);
+      }
     }
   }
 

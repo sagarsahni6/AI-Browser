@@ -28,7 +28,7 @@ async function createWindow() {
     height: 860,
     minWidth: 840,
     minHeight: 600,
-    show: false,
+    show: true,
     title: 'AI Browser',
     backgroundColor: '#f8fafc',
   });
@@ -62,7 +62,11 @@ async function createWindow() {
   const broadcastToPanels = (channel: string, ...args: any[]) => {
     for (const view of [toolbarView, sidebarView, assistantView]) {
       if (!view.webContents.isDestroyed()) {
-        view.webContents.send(channel, ...args);
+        try {
+          view.webContents.send(channel, ...args);
+        } catch {
+          // Ignore transient webContents frame disposal during navigation
+        }
       }
     }
   };
@@ -124,6 +128,7 @@ async function createWindow() {
   }
 
   mainWindow.show();
+  mainWindow.focus();
   layoutManager.updateBounds();
 
   // Start Python backend process
@@ -152,8 +157,7 @@ async function createWindow() {
   });
 }
 
-// Enable Chrome DevTools Protocol port for browser-use and advanced agent visual grounding
-app.commandLine.appendSwitch('remote-debugging-port', '9222');
+// Secure in-process CDP client via webContents.debugger.attach('1.3') is used instead of exposed debugging ports.
 
 app.whenReady().then(createWindow);
 

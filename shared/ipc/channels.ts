@@ -129,6 +129,12 @@ export const IPC_CHANNELS = {
   DESKTOP_RESET_STOP: 'desktop:reset-stop',
   DESKTOP_GET_AUDIT_LOGS: 'desktop:get-audit-logs',
   DESKTOP_EMERGENCY_STOPPED: 'desktop:emergency-stopped',
+
+  // Agent Skills Architecture
+  SKILLS_LIST: 'skills:list',
+  SKILLS_TOGGLE: 'skills:toggle',
+  SKILLS_EXECUTE: 'skills:execute',
+  SKILLS_CHANGED: 'skills:changed',
 } as const;
 
 export type IpcChannel = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS];

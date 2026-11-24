@@ -138,21 +138,31 @@ async def resume_task(task_id: str, db: AsyncSession = Depends(get_db)):
     return {"status": "running", "id": task_id}
 
 @router.post("/{task_id}/approve")
-async def approve_task(task_id: str, db: AsyncSession = Depends(get_db)):
+async def approve_task(
+    task_id: str,
+    approval_id: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+):
     repo = Repository(db)
     task = await repo.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    await repo.update_task_status(task_id, status="running")
-    return {"status": "approved", "id": task_id}
+    from backend.app.agents.supervisor import SupervisorAgent
+    res = await SupervisorAgent.resume_approved_task(task_id, approval_id=approval_id, decision=True)
+    return res
 
 @router.post("/{task_id}/reject")
-async def reject_task(task_id: str, db: AsyncSession = Depends(get_db)):
+async def reject_task(
+    task_id: str,
+    approval_id: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+):
     repo = Repository(db)
     task = await repo.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    await repo.update_task_status(task_id, status="cancelled", error="Action rejected by user")
-    return {"status": "rejected", "id": task_id}
+    from backend.app.agents.supervisor import SupervisorAgent
+    res = await SupervisorAgent.resume_approved_task(task_id, approval_id=approval_id, decision=False)
+    return res
